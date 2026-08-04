@@ -1,0 +1,1 @@
+"""Replaceable Spotify catalog boundary."""

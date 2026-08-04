@@ -1,0 +1,134 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #f5f3ed;
+  background: #171512;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 64px 24px;
+}
+header {
+  max-width: 680px;
+  margin-bottom: 48px;
+}
+h1 {
+  font-size: clamp(3.5rem, 10vw, 7.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.08em;
+  margin: 12px 0 20px;
+}
+h2 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  letter-spacing: -0.05em;
+  margin: 8px 0 14px;
+}
+p {
+  color: #aaa59c;
+  line-height: 1.5;
+}
+.eyebrow,
+.round-bar,
+.status {
+  color: #b9f227;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.subhead {
+  font-size: 1.2rem;
+}
+.card {
+  border: 1px solid #3a3731;
+  background: #211f1b;
+  border-radius: 24px;
+  padding: clamp(28px, 6vw, 72px);
+}
+.intro {
+  text-align: center;
+}
+button {
+  border: 0;
+  border-radius: 999px;
+  background: #b9f227;
+  color: #171512;
+  padding: 14px 22px;
+  font-weight: 800;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+button.secondary {
+  background: transparent;
+  color: #f5f3ed;
+  border: 1px solid #625d52;
+}
+.error {
+  color: #ff9288;
+  border: 1px solid #7d413b;
+  padding: 16px;
+  border-radius: 12px;
+}
+.round-bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.stage {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.mystery {
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #b9f227;
+  color: #171512;
+  font-size: 5rem;
+  font-weight: 900;
+}
+.timer {
+  font-size: 2rem;
+  color: #f5f3ed;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+.scores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.score {
+  display: flex;
+  justify-content: space-between;
+  padding: 22px;
+  border: 1px solid #3a3731;
+  border-radius: 16px;
+  background: #211f1b;
+}
+.score strong {
+  color: #b9f227;
+  font-size: 1.5rem;
+}

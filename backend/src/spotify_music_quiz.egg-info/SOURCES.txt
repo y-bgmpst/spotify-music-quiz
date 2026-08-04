@@ -1,0 +1,16 @@
+pyproject.toml
+src/music_quiz/__init__.py
+src/music_quiz/auth.py
+src/music_quiz/main.py
+src/music_quiz/services.py
+src/music_quiz/domain/__init__.py
+src/music_quiz/domain/game.py
+src/music_quiz/spotify/__init__.py
+src/music_quiz/spotify/fake.py
+src/spotify_music_quiz.egg-info/PKG-INFO
+src/spotify_music_quiz.egg-info/SOURCES.txt
+src/spotify_music_quiz.egg-info/dependency_links.txt
+src/spotify_music_quiz.egg-info/requires.txt
+src/spotify_music_quiz.egg-info/top_level.txt
+tests/test_domain.py
+tests/test_service.py

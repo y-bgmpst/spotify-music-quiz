@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Node
+node_modules/
+dist/
+.npm
+.yarn/
+
+# Build artifacts
+build/
+dist-windows/
+dist-linux/
+*.spec
+*.exe
+*.msi
+
+# Database
+.data/
+*.db
+*.db-journal
+
+# Secrets & Config
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Claude
+.claude/
