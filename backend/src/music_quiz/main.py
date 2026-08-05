@@ -5,55 +5,73 @@ import secrets
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from music_quiz.auth import AuthState, authorization_url
 from music_quiz.auth_service import SpotifyAuthService, TokenRefreshError
-from music_quiz.domain.game import DomainError, ExcerptMode, GameConfig, GameStatus
+from music_quiz.config import Settings, load_settings
+from music_quiz.domain.game import DomainError, ExcerptMode, Game, GameConfig, GameStatus
+from music_quiz.errors import AppError, register_error_handlers
+from music_quiz.oauth_state import OAuthStateStore
 from music_quiz.persistence.sqlite import SQLiteGameRepository
 from music_quiz.persistence.tokens import TokenRepository
 from music_quiz.services import QuizService
 from music_quiz.spotify.fake import FakeSpotifyCatalog
 
-# Load .env file
 load_dotenv()
 
+settings: Settings = load_settings(os.environ)
+
 app = FastAPI(title="Spotify Music Quiz", version="0.1.0")
-frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:5173")
+register_error_handlers(app)
+
+# Explicit allowlist only. No wildcard origin, and only the methods and headers
+# this API actually uses. Credentials stay enabled for the same-machine host
+# session; a wildcard origin would be rejected by browsers anyway.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin, "http://localhost:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(settings.allowed_origins),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
     allow_credentials=True,
+    max_age=600,
 )
 
-# Initialize persistence
-db_path = os.getenv("DATABASE_PATH", ".data/quiz.db")
-repository = SQLiteGameRepository(db_path)
-token_repo = TokenRepository(db_path)
-client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
-auth_service = SpotifyAuthService(token_repo, client_id) if client_id else None
+repository = SQLiteGameRepository(settings.database_path)
+token_repo = TokenRepository(settings.database_path)
+auth_service = (
+    SpotifyAuthService(token_repo, settings.spotify_client_id)
+    if settings.spotify_client_id
+    else None
+)
 service = QuizService(FakeSpotifyCatalog(), repository)
-auth_states: dict[str, AuthState] = {}
+oauth_states = OAuthStateStore(clock=settings.clock)
 
 
 class ConfigInput(BaseModel):
-    rounds: int = Field(10, ge=1)
-    excerpt_seconds: int = Field(10, ge=1)
+    rounds: int = Field(10, ge=1, le=100)
+    excerpt_seconds: int = Field(10, ge=1, le=60)
     mode: ExcerptMode = ExcerptMode.RANDOM
-    participants: list[str] = Field(default_factory=lambda: ["Team A"])
+    participants: list[str] = Field(default_factory=lambda: ["Team A"], min_length=1, max_length=12)
     seed: int | None = None
-    time_limit_seconds: int | None = Field(None, ge=1)  # 300 (5min) or 600 (10min)
+    time_limit_seconds: int | None = Field(None, ge=1, le=7200)
 
 
-def payload(game: object, reveal: bool = False) -> dict[str, object]:
-    from music_quiz.domain.game import Game
+class ScoreInput(BaseModel):
+    participant_id: UUID
+    points: int = Field(..., ge=-100, le=100)
+    reason: str = Field("manual", min_length=1, max_length=64)
+    event_id: UUID | None = None
 
-    assert isinstance(game, Game)
+
+def _not_found() -> AppError:
+    return AppError(404, "game_not_found", "That game does not exist.")
+
+
+def payload(game: Game, reveal: bool = False) -> dict[str, object]:
     current = game.current_round if game.status is not GameStatus.FINISHED else None
     result: dict[str, object] = {
         "id": str(game.id),
@@ -62,11 +80,26 @@ def payload(game: object, reveal: bool = False) -> dict[str, object]:
         "rounds": len(game.queue),
         "excerpt_seconds": game.config.excerpt_seconds,
         "time_limit_seconds": game.config.time_limit_seconds,
+        # Backend-authoritative clock. The frontend renders this value and never
+        # decides on its own when a round has ended.
+        "excerpt_remaining_ms": game.remaining_excerpt_ms(),
+        "excerpt_deadline_ms": game.excerpt_deadline_ms,
         "participants": [
             {"id": str(p.id), "name": p.name, "score": p.score} for p in game.participants
         ],
+        "score_events": [
+            {
+                "id": str(e.id),
+                "participant_id": str(e.participant_id),
+                "points": e.points,
+                "reason": e.reason,
+                "reversed": e.reversed,
+            }
+            for e in game.score_events
+        ],
     }
-    if current and reveal:
+    # Concealment invariant: answer fields are serialised only after reveal.
+    if current and reveal and game.status is GameStatus.REVEALED:
         result["answer"] = {
             "title": current.track.title,
             "artists": list(current.track.artists),
@@ -78,57 +111,111 @@ def payload(game: object, reveal: bool = False) -> dict[str, object]:
     return result
 
 
+def _load(game_id: UUID) -> Game:
+    try:
+        return service.get(game_id)
+    except KeyError as exc:
+        raise _not_found() from exc
+
+
 @app.get("/api/v1/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "spotify_configured": bool(settings.spotify_client_id),
+        "playback": "stub",
+    }
+
+
+@app.get("/api/v1/config")
+def config_status() -> dict[str, object]:
+    """Report configuration readiness without leaking any credential value."""
+    return {
+        "spotify_client_id_configured": bool(settings.spotify_client_id),
+        "redirect_uri": settings.redirect_uri,
+        "frontend_origin": settings.frontend_origin,
+        "playback_implemented": False,
+        "problems": list(settings.problems),
+    }
 
 
 @app.get("/api/v1/auth/status")
 def auth_status() -> dict[str, bool]:
     if not auth_service:
-        return {"authenticated": False}
-    token = auth_service.get_default_token()
-    return {"authenticated": token is not None and not token.is_expired()}
+        return {"authenticated": False, "configured": False}
+    try:
+        token = auth_service.get_default_token()
+    except TokenRefreshError:
+        # A refresh failure means the stored grant is no longer usable; report
+        # it as signed out rather than failing the status probe.
+        return {"authenticated": False, "configured": True}
+    return {
+        "authenticated": token is not None and not token.is_expired(),
+        "configured": True,
+    }
 
 
 @app.get("/api/v1/auth/login")
 def login() -> RedirectResponse:
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    if not client_id:
-        raise HTTPException(503, "Spotify Client ID is not configured")
-    state = secrets.token_urlsafe(32)
-    verifier = secrets.token_urlsafe(64)
-    auth_states[state] = AuthState(state, verifier)
-    return RedirectResponse(
-        authorization_url(
-            client_id,
-            os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback"),
-            auth_states[state],
-        )
-    )
+    if not settings.spotify_client_id:
+        raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
+    auth_state = AuthState(secrets.token_urlsafe(32), secrets.token_urlsafe(64))
+    oauth_states.put(auth_state)
+    url = authorization_url(settings.spotify_client_id, settings.redirect_uri, auth_state)
+    return RedirectResponse(url, status_code=307)
 
 
+@app.get("/api/v1/auth/callback")
 def callback(
     code: str | None = None, state: str | None = None, error: str | None = None
 ) -> RedirectResponse:
-    if not state or state not in auth_states:
-        raise HTTPException(400, "invalid OAuth state")
-    auth_state = auth_states[state]
-    del auth_states[state]
-    if error or not code:
-        raise HTTPException(400, "Spotify authorization was denied")
+    """Spotify redirect target.
 
+    The path here MUST match SPOTIFY_REDIRECT_URI and the URI registered in the
+    Spotify dashboard, otherwise Spotify refuses the request before it arrives.
+    """
+    auth_state = oauth_states.consume(state)
+    if auth_state is None:
+        # Covers unknown, replayed, expired and missing state alike; the client
+        # is told nothing that would help distinguish them.
+        raise AppError(
+            400,
+            "invalid_oauth_state",
+            "This login link is no longer valid. Start the login again.",
+            log_context={"state": state, "reason": "state_not_consumable"},
+        )
+    if error:
+        return RedirectResponse(f"{settings.frontend_origin}/?auth_error=denied", status_code=303)
+    if not code:
+        raise AppError(
+            400,
+            "missing_authorization_code",
+            "Spotify did not return an authorization code.",
+        )
     if not auth_service:
-        raise HTTPException(503, "Auth service not configured")
+        raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
 
     try:
-        redirect_uri = os.getenv(
-            "SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback"
-        )
-        auth_service.exchange_code(code, redirect_uri, auth_state.verifier)
-        return RedirectResponse(frontend_origin + "/?authenticated=1")
+        auth_service.exchange_code(code, settings.redirect_uri, auth_state.verifier)
     except TokenRefreshError as exc:
-        raise HTTPException(500, f"Token exchange failed: {exc}") from exc
+        # The upstream message can embed the code or token payload, so it is
+        # logged as a redacted context and never returned to the browser.
+        raise AppError(
+            502,
+            "token_exchange_failed",
+            "Could not complete Spotify sign-in. Please try again.",
+            log_context={"code": code, "state": state},
+            cause=exc,
+        ) from exc
+    return RedirectResponse(f"{settings.frontend_origin}/?authenticated=1", status_code=303)
+
+
+@app.post("/api/v1/auth/logout")
+def logout() -> dict[str, bool]:
+    oauth_states.clear()
+    if auth_service:
+        auth_service.revoke_token()
+    return {"authenticated": False}
 
 
 @app.get("/api/v1/playlists")
@@ -164,30 +251,24 @@ def create_game(body: ConfigInput) -> dict[str, object]:
             body.seed,
         )
     except DomainError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise AppError(400, "invalid_game_config", str(exc)) from exc
     return payload(game)
 
 
 @app.get("/api/v1/games/{game_id}")
 def get_game(game_id: UUID) -> dict[str, object]:
-    try:
-        return payload(
-            service.get(game_id), reveal=service.get(game_id).status is GameStatus.REVEALED
-        )
-    except KeyError as exc:
-        raise HTTPException(404, "game not found") from exc
+    game = _load(game_id)
+    return payload(game, reveal=game.status is GameStatus.REVEALED)
 
 
 def mutate(game_id: UUID, operation: str) -> dict[str, object]:
+    game = _load(game_id)
     try:
-        game = service.get(game_id)
         getattr(game, operation)()
-        service.repository.save(game)
-        return payload(game, reveal=game.status is GameStatus.REVEALED)
-    except KeyError as exc:
-        raise HTTPException(404, "game not found") from exc
     except DomainError as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise AppError(409, "invalid_state_transition", str(exc)) from exc
+    service.repository.save(game)
+    return payload(game, reveal=game.status is GameStatus.REVEALED)
 
 
 @app.post("/api/v1/games/{game_id}/round/start")
@@ -213,3 +294,25 @@ def reveal(game_id: UUID) -> dict[str, object]:
 @app.post("/api/v1/games/{game_id}/round/next")
 def next_round(game_id: UUID) -> dict[str, object]:
     return mutate(game_id, "next_round")
+
+
+@app.post("/api/v1/games/{game_id}/scores")
+def award_score(game_id: UUID, body: ScoreInput) -> dict[str, object]:
+    game = _load(game_id)
+    try:
+        game.add_score(body.participant_id, body.points, body.reason, body.event_id)
+    except DomainError as exc:
+        raise AppError(409, "score_rejected", str(exc)) from exc
+    service.repository.save(game)
+    return payload(game, reveal=game.status is GameStatus.REVEALED)
+
+
+@app.post("/api/v1/games/{game_id}/scores/{event_id}/reverse")
+def reverse_score(game_id: UUID, event_id: UUID) -> dict[str, object]:
+    game = _load(game_id)
+    try:
+        game.reverse_score(event_id)
+    except DomainError as exc:
+        raise AppError(409, "score_reversal_rejected", str(exc)) from exc
+    service.repository.save(game)
+    return payload(game, reveal=game.status is GameStatus.REVEALED)

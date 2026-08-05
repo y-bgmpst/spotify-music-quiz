@@ -39,6 +39,9 @@ fi
 echo "Building frontend..."
 npm --prefix frontend install
 npm --prefix frontend run build
+# Regression guard: the packaged app is served below /frontend/, so index.html
+# must reference /frontend/assets/... - never hand-patch the generated HTML.
+npm --prefix frontend run check:base
 echo "✓ Frontend built"
 echo ""
 

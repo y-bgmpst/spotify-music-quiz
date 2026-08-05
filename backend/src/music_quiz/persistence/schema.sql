@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS games (
     status TEXT NOT NULL,
     current_index INTEGER NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    excerpt_deadline_ms INTEGER,
+    excerpt_remaining_ms INTEGER
 );
 
 -- Participants table

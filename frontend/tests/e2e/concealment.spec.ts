@@ -1,120 +1,57 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { createGame } from './helpers';
 
-test.describe('Answer Concealment', () => {
-  test('should hide answer metadata before reveal', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
-
-    // During playing state, answer should not be in DOM
-    await expect(
-      page.locator('.eyebrow:has-text("THE ANSWER")'),
-    ).not.toBeVisible();
-
-    // Mystery indicator should be visible
-    await expect(page.locator('.mystery')).toContainText('?');
-    await expect(page.locator('h2')).toContainText('What are we listening to?');
-
-    // Check that answer data is not leaked in DOM
-    const pageContent = await page.content();
-
-    // The answer should not appear as text in the HTML
-    // (We can't check exact track names without knowing them, but we can verify structure)
-    expect(pageContent).not.toContain('THE ANSWER');
-  });
-
-  test('should reveal answer metadata after reveal action', async ({
-    page,
-  }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
-    await page.click('button:has-text("Reveal answer")');
-
-    // Answer should now be visible
-    await expect(page.locator('.eyebrow:has-text("THE ANSWER")')).toBeVisible();
-
-    // Title and artist should be displayed
-    const answerTitle = page.locator('h2').nth(1);
-    await expect(answerTitle).not.toBeEmpty();
-
-    // Album and artist info should be present
-    const answerDetails = page.locator('p').filter({ hasText: '·' });
-    await expect(answerDetails).toBeVisible();
-  });
-
-  test('should not show answer in page title during concealment', async ({
-    page,
-  }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
-
-    // Page title should not contain track details
-    const title = await page.title();
-    expect(title).toBeTruthy();
-    // Title should be generic, not revealing the answer
-    expect(title).not.toMatch(/[Ss]ong|[Tt]rack|[Aa]rtist/);
-  });
-
-  test('should hide answer again after next round', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-
-    // Round 1: reveal and advance
-    await page.click('button:has-text("Start excerpt")');
-    await page.click('button:has-text("Reveal answer")');
-    await expect(page.locator('.eyebrow:has-text("THE ANSWER")')).toBeVisible();
-
-    await page.click('button:has-text("Next round")');
-
-    // Round 2: answer should be concealed again
-    await expect(
-      page.locator('.eyebrow:has-text("THE ANSWER")'),
-    ).not.toBeVisible();
-    await expect(page.locator('.mystery')).toBeVisible();
-  });
-
-  test('should not leak answer through alt text or aria labels', async ({
-    page,
-  }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
-
-    // Check for images with revealing alt text
-    const images = page.locator('img');
-    const imageCount = await images.count();
-
-    for (let i = 0; i < imageCount; i++) {
-      const img = images.nth(i);
-      const alt = await img.getAttribute('alt');
-      // Alt text should not reveal track info during concealment
-      if (alt) {
-        expect(alt).not.toMatch(/track|song|album/i);
+/**
+ * The answer must never reach the browser before reveal — not in the DOM and
+ * not in the network payload. Hiding it with CSS would still leak it.
+ */
+test.describe('answer concealment', () => {
+  test('no pre-reveal API response contains answer fields', async ({ page }) => {
+    const payloads: unknown[] = [];
+    page.on('response', async response => {
+      if (!response.url().includes('/api/v1/games')) return;
+      if (!response.headers()['content-type']?.includes('application/json')) return;
+      try {
+        payloads.push(await response.json());
+      } catch {
+        /* non-JSON responses are irrelevant here */
       }
+    });
+
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
+    await expect(page.getByText('Status: playing')).toBeVisible();
+    await page.getByRole('button', { name: 'Pause round' }).click();
+    await expect(page.getByText('Status: paused')).toBeVisible();
+
+    expect(payloads.length).toBeGreaterThan(0);
+    for (const payload of payloads) {
+      expect(payload).not.toHaveProperty('answer');
     }
   });
 
-  test('should maintain concealment during pause and resume', async ({
+  test('the answer appears only after reveal and is hidden again on next round', async ({
     page,
   }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
 
-    // Pause
-    await page.click('button:has-text("Pause")');
-    await expect(page.locator('.mystery')).toBeVisible();
-    await expect(
-      page.locator('.eyebrow:has-text("THE ANSWER")'),
-    ).not.toBeVisible();
+    await expect(page.getByText('Fake Album')).toHaveCount(0);
 
-    // Resume
-    await page.click('button:has-text("Resume")');
-    await expect(page.locator('.mystery')).toBeVisible();
-    await expect(
-      page.locator('.eyebrow:has-text("THE ANSWER")'),
-    ).not.toBeVisible();
+    await page.getByRole('button', { name: 'Reveal answer' }).click();
+    await expect(page.getByText('Fake Album')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Next round' }).click();
+    await expect(page.getByText('Fake Album')).toHaveCount(0);
+    await expect(page.getByText('The track is hidden until you reveal it.')).toBeVisible();
+  });
+
+  test('the concealed stage exposes no hidden answer text to assistive tech', async ({ page }) => {
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
+
+    const html = await page.content();
+    expect(html).not.toMatch(/Track \d+<\/h3>/);
+    expect(html).not.toContain('Fake Album');
   });
 });

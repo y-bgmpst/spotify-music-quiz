@@ -1,164 +1,114 @@
-import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
+import { createGame } from './helpers';
 
-test.describe('Accessibility', () => {
-  test('should not have automatically detectable accessibility violations on landing page', async ({
-    page,
-  }) => {
+/**
+ * Accessibility is asserted with axe on every meaningful screen, plus explicit
+ * keyboard-operability checks that axe cannot make.
+ */
+async function scan(page: Page) {
+  // AxeBuilder bundles its own Playwright types; cast keeps the versions aligned.
+  return new AxeBuilder({ page: page as never })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+}
+
+test.describe('accessibility', () => {
+  test('the setup screen has no axe violations', async ({ page }) => {
     await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Set up the quiz' })).toBeVisible();
 
-    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
+    const results = await scan(page);
 
-    expect(accessibilityScanResults.violations).toEqual([]);
+    expect(results.violations).toEqual([]);
   });
 
-  test('should not have accessibility violations during game', async ({
-    page,
-  }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
+  test('the playing screen has no axe violations', async ({ page }) => {
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
+    await expect(page.getByText('Status: playing')).toBeVisible();
 
-    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
+    const results = await scan(page);
 
-    // Log violations for debugging if any exist
-    if (accessibilityScanResults.violations.length > 0) {
-      console.log(
-        'Accessibility violations:',
-        JSON.stringify(accessibilityScanResults.violations, null, 2),
-      );
-    }
-
-    expect(accessibilityScanResults.violations).toEqual([]);
+    expect(results.violations).toEqual([]);
   });
 
-  test('should have proper heading hierarchy', async ({ page }) => {
-    await page.goto('/');
+  test('the revealed screen with scoring has no axe violations', async ({ page }) => {
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
+    await page.getByRole('button', { name: 'Reveal answer' }).click();
+    await page.getByRole('button', { name: /Award one point to Team A for the title/ }).click();
 
-    // Check h1 exists
-    const h1 = page.locator('h1');
-    await expect(h1).toBeVisible();
-    await expect(h1).toContainText('Guess the track');
+    const results = await scan(page);
 
-    // Create game and check h2
-    await page.click('button:has-text("Create demo game")');
-    const h2 = page.locator('h2');
-    await expect(h2).toBeVisible();
+    expect(results.violations).toEqual([]);
   });
 
-  test('should support keyboard navigation', async ({ page }) => {
+  test('the whole game can be played with the keyboard alone', async ({ page }) => {
     await page.goto('/');
 
-    // Tab to the create button
-    await page.keyboard.press('Tab');
+    // Reach and fill the form using only keyboard interaction.
+    await page.getByLabel('Teams (comma separated)').focus();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('Team A, Team B');
 
-    // Button should have focus
-    const createButton = page.locator('button:has-text("Create demo game")');
-    await expect(createButton).toBeFocused();
-
-    // Press Enter to activate
+    const startQuiz = page.getByRole('button', { name: 'Start quiz' });
+    await startQuiz.focus();
+    await expect(startQuiz).toBeFocused();
     await page.keyboard.press('Enter');
 
-    // Game should be created
-    await expect(page.locator('.round-bar')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Round 1 of/ })).toBeVisible();
 
-    // Tab to start button
-    await page.keyboard.press('Tab');
-    await page.keyboard.press('Tab');
-    const startButton = page.locator('button:has-text("Start excerpt")');
-    await expect(startButton).toBeFocused();
+    for (const name of ['Start round', 'Reveal answer', 'Next round']) {
+      const button = page.getByRole('button', { name });
+      await button.focus();
+      await expect(button).toBeFocused();
+      await page.keyboard.press('Enter');
+    }
+
+    await expect(page.getByRole('heading', { name: /Round 2 of/ })).toBeVisible();
   });
 
-  test('should have visible focus indicators', async ({ page }) => {
+  test('focused controls show a visible focus indicator', async ({ page }) => {
     await page.goto('/');
+    const button = page.getByRole('button', { name: 'Start quiz' });
+    await button.focus();
 
-    const createButton = page.locator('button:has-text("Create demo game")');
+    const outlineWidth = await button.evaluate(
+      element => window.getComputedStyle(element).outlineWidth,
+    );
 
-    // Tab to button
-    await page.keyboard.press('Tab');
-
-    // Check that focus is visible (button should have outline or similar)
-    const outlineStyle = await createButton.evaluate((el) => {
-      const styles = window.getComputedStyle(el);
-      return {
-        outline: styles.outline,
-        outlineWidth: styles.outlineWidth,
-        boxShadow: styles.boxShadow,
-      };
-    });
-
-    // Should have some form of focus indicator
-    const hasFocusIndicator =
-      outlineStyle.outlineWidth !== '0px' ||
-      outlineStyle.outline !== 'none' ||
-      outlineStyle.boxShadow !== 'none';
-
-    expect(hasFocusIndicator).toBeTruthy();
+    expect(parseFloat(outlineWidth)).toBeGreaterThanOrEqual(2);
   });
 
-  test('should announce status changes to screen readers', async ({ page }) => {
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
+  test('interactive targets meet the 44px minimum', async ({ page }) => {
+    await createGame(page);
+    await page.getByRole('button', { name: 'Start round' }).click();
+    await page.getByRole('button', { name: 'Reveal answer' }).click();
 
-    // Game area should have aria-live for status updates
-    const gameSection = page.locator('.game');
-    const ariaLive = await gameSection.getAttribute('aria-live');
-
-    expect(ariaLive).toBe('polite');
-  });
-
-  test('should have proper button labels', async ({ page }) => {
-    await page.goto('/');
-
-    // All buttons should have text content or aria-label
-    const buttons = page.locator('button');
-    const buttonCount = await buttons.count();
-
-    for (let i = 0; i < buttonCount; i++) {
-      const button = buttons.nth(i);
-      const text = await button.textContent();
-      const ariaLabel = await button.getAttribute('aria-label');
-
-      // Button should have either text or aria-label
-      expect(text || ariaLabel).toBeTruthy();
+    for (const button of await page.getByRole('button').all()) {
+      const box = await button.boundingBox();
+      if (!box) continue;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
     }
   });
 
-  test('should have appropriate color contrast', async ({ page }) => {
+  test('the page exposes one h1 and a main landmark', async ({ page }) => {
     await page.goto('/');
 
-    // Run axe with WCAG AA color contrast rules
-    const accessibilityScanResults = await new AxeBuilder({ page })
-      .withTags(['wcag2aa'])
-      .analyze();
-
-    const colorContrastViolations = accessibilityScanResults.violations.filter(
-      (v) => v.id === 'color-contrast',
-    );
-
-    expect(colorContrastViolations).toEqual([]);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole('main')).toHaveCount(1);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   });
 
-  test('should respect prefers-reduced-motion', async ({ page }) => {
-    // Emulate reduced motion preference
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-
-    await page.goto('/');
-    await page.click('button:has-text("Create demo game")');
-    await page.click('button:has-text("Start excerpt")');
-
-    // Page should still be functional with reduced motion
-    await expect(page.locator('.status')).toContainText('PLAYING');
-    await expect(page.locator('.timer')).toBeVisible();
-  });
-
-  test('should have proper role for alert messages', async ({ page }) => {
+  test('errors are announced through a live region', async ({ page }) => {
+    await page.route('**/api/v1/games', route => route.abort('failed'));
     await page.goto('/');
 
-    // Check if error region has proper role
-    // (This would trigger if we intentionally cause an error)
-    const alertRegion = page.locator('[role="alert"]');
+    await page.getByRole('button', { name: 'Start quiz' }).click();
 
-    // Initially should not be visible
-    await expect(alertRegion).not.toBeVisible();
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('Cannot reach the quiz server');
   });
 });

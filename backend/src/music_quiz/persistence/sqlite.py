@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -29,14 +30,24 @@ class SQLiteGameRepository:
         """Create database and apply schema if needed."""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         schema_path = Path(__file__).parent / "schema.sql"
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(schema_path.read_text())
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Additively add columns that databases created before them lack."""
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(games)")}
+        for column in ("excerpt_deadline_ms", "excerpt_remaining_ms"):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE games ADD COLUMN {column} INTEGER")
+        conn.commit()
 
     def save(self, game: Game) -> None:
         """Save or update a game."""
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
 
             # Check if game exists
@@ -80,15 +91,26 @@ class SQLiteGameRepository:
                 cursor.execute(
                     """UPDATE games
                        SET config_json = ?, queue_json = ?, status = ?,
-                           current_index = ?, updated_at = ?
+                           current_index = ?, updated_at = ?,
+                           excerpt_deadline_ms = ?, excerpt_remaining_ms = ?
                        WHERE id = ?""",
-                    (config_json, queue_json, game.status, game.current_index, now, str(game.id)),
+                    (
+                        config_json,
+                        queue_json,
+                        game.status,
+                        game.current_index,
+                        now,
+                        game.excerpt_deadline_ms,
+                        game.excerpt_remaining_ms,
+                        str(game.id),
+                    ),
                 )
             else:
                 cursor.execute(
                     """INSERT INTO games
-                       (id, config_json, queue_json, status, current_index, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (id, config_json, queue_json, status, current_index,
+                        created_at, updated_at, excerpt_deadline_ms, excerpt_remaining_ms)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         str(game.id),
                         config_json,
@@ -97,6 +119,8 @@ class SQLiteGameRepository:
                         game.current_index,
                         now,
                         now,
+                        game.excerpt_deadline_ms,
+                        game.excerpt_remaining_ms,
                     ),
                 )
 
@@ -133,7 +157,7 @@ class SQLiteGameRepository:
 
     def get(self, game_id: UUID) -> Game:
         """Retrieve a game by ID. Raises KeyError if not found."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -203,11 +227,13 @@ class SQLiteGameRepository:
                 status=GameStatus(row["status"]),
                 current_index=row["current_index"],
                 score_events=score_events,
+                excerpt_deadline_ms=row["excerpt_deadline_ms"],
+                excerpt_remaining_ms=row["excerpt_remaining_ms"],
             )
 
     def list(self) -> list[Game]:
         """List all games."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM games")
             game_ids = [UUID(row[0]) for row in cursor.fetchall()]
@@ -215,7 +241,7 @@ class SQLiteGameRepository:
 
     def delete(self, game_id: UUID) -> None:
         """Delete a game. Raises KeyError if not found."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
 
             # Enable foreign key constraints
