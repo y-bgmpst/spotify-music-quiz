@@ -74,7 +74,12 @@ export class ApiError extends Error {
   readonly status?: number;
   readonly code?: string;
 
-  constructor(kind: ApiErrorKind, message: string, status?: number, code?: string) {
+  constructor(
+    kind: ApiErrorKind,
+    message: string,
+    status?: number,
+    code?: string,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
@@ -85,7 +90,16 @@ export class ApiError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
-const baseUrl: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api/v1';
+/** Safe diagnostics for browser debugging; never log tokens or response bodies. */
+export function debugEvent(
+  event: string,
+  details: Record<string, boolean | number | string | undefined> = {},
+): void {
+  console.info('[spotify-quiz]', event, details);
+}
+
+const baseUrl: string =
+  import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api/v1';
 
 interface ErrorEnvelope {
   error?: { code?: string; message?: string };
@@ -108,8 +122,18 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+export async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const {
+    method = 'GET',
+    body,
+    signal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = options;
+  const started = performance.now();
+  debugEvent('api_request', { method, path });
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
@@ -124,17 +148,24 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     response = await fetch(`${baseUrl}${path}`, {
       method,
       signal: controller.signal,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers:
+        body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     if (signal?.aborted) {
+      debugEvent('api_exception', { method, path, error: 'cancelled' });
       throw new ApiError('network', 'The request was cancelled.');
     }
     if (timedOut || controller.signal.aborted) {
+      debugEvent('api_exception', { method, path, error: 'timeout' });
       throw new ApiError('timeout', 'The quiz server did not respond in time.');
     }
-    throw new ApiError('network', 'Cannot reach the quiz server. Is the backend running?');
+    debugEvent('api_exception', { method, path, error: 'network' });
+    throw new ApiError(
+      'network',
+      'Cannot reach the quiz server. Is the backend running?',
+    );
   } finally {
     clearTimeout(timeout);
     clearTimeout(timeoutWatcher);
@@ -148,6 +179,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     } catch {
       envelope = null;
     }
+    debugEvent('api_error', {
+      method,
+      path,
+      status: response.status,
+      code: envelope?.error?.code,
+      elapsed_ms: Math.round(performance.now() - started),
+    });
     throw new ApiError(
       'http',
       messageFor(response.status, envelope),
@@ -157,9 +195,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   try {
-    return (await response.json()) as T;
+    const result = (await response.json()) as T;
+    debugEvent('api_success', {
+      method,
+      path,
+      status: response.status,
+      elapsed_ms: Math.round(performance.now() - started),
+    });
+    return result;
   } catch {
-    throw new ApiError('malformed', 'The quiz server sent an unreadable response.');
+    throw new ApiError(
+      'malformed',
+      'The quiz server sent an unreadable response.',
+    );
   }
 }
 
@@ -169,21 +217,32 @@ export const api = {
   health: (init?: RequestOptions) =>
     request<{ status: string; spotify_configured: boolean }>('/health', init),
   config: (init?: RequestOptions) => request<ConfigStatus>('/config', init),
-  authStatus: (init?: RequestOptions) => request<AuthStatus>('/auth/status', init),
+  authStatus: (init?: RequestOptions) =>
+    request<AuthStatus>('/auth/status', init),
   loginUrl: () => `${baseUrl}/auth/login`,
-  accessToken: (init?: RequestOptions) => request<AccessToken>('/auth/token', init),
+  accessToken: (init?: RequestOptions) =>
+    request<AccessToken>('/auth/token', init),
   create: (body: Record<string, unknown>, init?: RequestOptions) =>
     request<Game>('/games', { ...init, method: 'POST', body }),
-  get: (id: string, init?: RequestOptions) => request<Game>(`/games/${id}`, init),
+  get: (id: string, init?: RequestOptions) =>
+    request<Game>(`/games/${id}`, init),
   command: (id: string, command: RoundCommand, init?: RequestOptions) =>
     request<Game>(`/games/${id}/round/${command}`, { ...init, method: 'POST' }),
   awardScore: (
     id: string,
-    body: { participant_id: string; points: number; reason: string; event_id?: string },
+    body: {
+      participant_id: string;
+      points: number;
+      reason: string;
+      event_id?: string;
+    },
     init?: RequestOptions,
   ) => request<Game>(`/games/${id}/scores`, { ...init, method: 'POST', body }),
   reverseScore: (id: string, eventId: string, init?: RequestOptions) =>
-    request<Game>(`/games/${id}/scores/${eventId}/reverse`, { ...init, method: 'POST' }),
+    request<Game>(`/games/${id}/scores/${eventId}/reverse`, {
+      ...init,
+      method: 'POST',
+    }),
 };
 
 /** Narrow an unknown catch value to a message that is safe to display. */
