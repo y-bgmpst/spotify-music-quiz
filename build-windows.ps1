@@ -58,6 +58,15 @@ if (-not (Test-Path "frontend/dist/index.html")) {
     Write-Host "ERROR: Frontend build failed" -ForegroundColor Red
     exit 1
 }
+
+# Regression guard: the packaged app is served below /frontend/, so index.html
+# must reference /frontend/assets/... - never hand-patch the generated HTML.
+Write-Host "  -> Verifying asset base path..." -ForegroundColor Gray
+npm --prefix frontend run check:base
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: dist/index.html does not reference /frontend/assets/" -ForegroundColor Red
+    exit 1
+}
 Write-Host "✓ Frontend built: frontend/dist/" -ForegroundColor Green
 Write-Host ""
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from random import Random
-from typing import Iterable
+from typing import Callable, Iterable
 from uuid import UUID, uuid4
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 class DomainError(ValueError):
@@ -170,6 +175,12 @@ class Game:
     status: GameStatus = GameStatus.READY
     current_index: int = 0
     score_events: list[ScoreEvent] = field(default_factory=list)
+    # Backend-authoritative excerpt clock. ``excerpt_deadline_ms`` is the epoch
+    # millisecond at which the running excerpt ends; ``excerpt_remaining_ms``
+    # holds the frozen remainder while paused. Exactly one is set at a time.
+    excerpt_deadline_ms: int | None = None
+    excerpt_remaining_ms: int | None = None
+    clock_ms: Callable[[], int] = field(default=_now_ms, repr=False, compare=False)
 
     @property
     def current_round(self) -> Round:
@@ -181,21 +192,30 @@ class Game:
         if self.status is not GameStatus.READY:
             raise DomainError(f"cannot start from {self.status}")
         self.status = GameStatus.PLAYING
+        total_ms = self.config.excerpt_seconds * 1000
+        self.excerpt_remaining_ms = None
+        self.excerpt_deadline_ms = self.clock_ms() + total_ms
 
     def pause(self) -> None:
         if self.status is not GameStatus.PLAYING:
             raise DomainError("only a playing round can pause")
         self.status = GameStatus.PAUSED
+        self.excerpt_remaining_ms = self.remaining_excerpt_ms()
+        self.excerpt_deadline_ms = None
 
     def resume(self) -> None:
         if self.status is not GameStatus.PAUSED:
             raise DomainError("only a paused round can resume")
         self.status = GameStatus.PLAYING
+        remaining = self.excerpt_remaining_ms or 0
+        self.excerpt_remaining_ms = None
+        self.excerpt_deadline_ms = self.clock_ms() + remaining
 
     def reveal(self) -> None:
         if self.status not in (GameStatus.PLAYING, GameStatus.PAUSED):
             raise DomainError("only an active round can reveal")
         self.status = GameStatus.REVEALED
+        self._clear_excerpt_clock()
 
     def next_round(self) -> None:
         if self.status is not GameStatus.REVEALED:
@@ -204,6 +224,19 @@ class Game:
         self.status = (
             GameStatus.FINISHED if self.current_index >= len(self.queue) else GameStatus.READY
         )
+        self._clear_excerpt_clock()
+
+    def remaining_excerpt_ms(self) -> int:
+        """Milliseconds left on the excerpt, derived from backend state only."""
+        if self.status is GameStatus.PLAYING and self.excerpt_deadline_ms is not None:
+            return max(0, self.excerpt_deadline_ms - self.clock_ms())
+        if self.status is GameStatus.PAUSED and self.excerpt_remaining_ms is not None:
+            return max(0, self.excerpt_remaining_ms)
+        return 0
+
+    def _clear_excerpt_clock(self) -> None:
+        self.excerpt_deadline_ms = None
+        self.excerpt_remaining_ms = None
 
     def add_score(
         self, participant_id: UUID, points: int, reason: str, event_id: UUID | None = None
