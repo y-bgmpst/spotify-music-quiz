@@ -68,9 +68,7 @@ class OAuthStateStore:
     def __len__(self) -> int:
         self.purge_expired()
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) FROM oauth_pending_states"
-            ).fetchone()
+            row = connection.execute("SELECT COUNT(*) FROM oauth_pending_states").fetchone()
         return int(row[0]) if row else 0
 
     @property
