@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from music_quiz.auth import AuthState
@@ -66,8 +68,8 @@ def test_callback_rejects_mismatched_state(api) -> None:
         follow_redirects=False,
     )
 
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "invalid_oauth_state"
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/?auth_error=invalid_state")
 
 
 def test_callback_rejects_a_replayed_state(api, monkeypatch) -> None:
@@ -88,7 +90,8 @@ def test_callback_rejects_a_replayed_state(api, monkeypatch) -> None:
     )
 
     assert first.status_code == 303
-    assert second.status_code == 400
+    assert second.status_code == 303
+    assert second.headers["location"].endswith("/?auth_error=invalid_state")
 
 
 def test_callback_handles_user_denial_without_exchanging(api, monkeypatch) -> None:
@@ -127,11 +130,11 @@ def test_failed_token_exchange_does_not_leak_upstream_detail(api, monkeypatch) -
         follow_redirects=False,
     )
 
-    assert response.status_code == 502
-    body = response.text
-    assert "SECRET-CODE-VALUE" not in body
-    assert "invalid_grant" not in body
-    assert response.json()["error"]["code"] == "token_exchange_failed"
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.endswith("/?auth_error=exchange_failed")
+    assert "SECRET-CODE-VALUE" not in response.text + location
+    assert "invalid_grant" not in response.text + location
 
 
 def test_state_is_consumed_even_when_exchange_fails(api, monkeypatch) -> None:
@@ -171,3 +174,55 @@ def test_status_endpoints_never_expose_the_client_id(api, path: str) -> None:
 
     assert response.status_code == 200
     assert "0123456789abcdef0123456789abcdef" not in response.text
+
+
+def test_callback_never_returns_a_raw_error_document(api, monkeypatch) -> None:
+    """A browser navigation must always land back in the app, never on JSON."""
+    client, main = api
+    main.oauth_states.clear()
+    main.oauth_states.put(AuthState("boom-state", "verifier"))
+
+    def explode(*_args: object) -> None:
+        raise RuntimeError("unexpected upstream failure")
+
+    monkeypatch.setattr(main.auth_service, "exchange_code", explode)
+
+    response = client.get(
+        "/api/v1/auth/callback",
+        params={"code": "c", "state": "boom-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/?auth_error=unexpected")
+    assert "internal_error" not in response.text
+
+
+def test_token_endpoint_requires_an_authenticated_session(api) -> None:
+    client, main = api
+    main.auth_service.revoke_token()
+
+    response = client.get("/api/v1/auth/token")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "spotify_not_authenticated"
+
+
+def test_token_endpoint_returns_the_stored_access_token(api, monkeypatch) -> None:
+    client, main = api
+    from music_quiz.persistence.tokens import SpotifyToken
+
+    token = SpotifyToken(
+        user_id="default",
+        access_token="access-abc",
+        refresh_token="refresh-abc",
+        token_type="Bearer",
+        expires_at=int(time.time()) + 3600,
+        scope="streaming",
+    )
+    monkeypatch.setattr(main.auth_service, "get_default_token", lambda: token)
+
+    response = client.get("/api/v1/auth/token")
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "access-abc"

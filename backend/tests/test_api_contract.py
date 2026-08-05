@@ -17,7 +17,7 @@ def test_health_and_config_report_readiness(api) -> None:
     assert client.get("/api/v1/health").json()["status"] == "ok"
     config = client.get("/api/v1/config").json()
     assert config["spotify_client_id_configured"] is True
-    assert config["playback_implemented"] is False
+    assert config["playback_implemented"] is True
 
 
 def test_unknown_game_returns_the_error_envelope(api) -> None:

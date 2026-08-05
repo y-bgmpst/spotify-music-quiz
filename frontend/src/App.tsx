@@ -6,7 +6,13 @@ import {
   type Game,
   type RoundCommand,
 } from './api/client';
-import { PLAYBACK_UNAVAILABLE_NOTICE, StubPlayback } from './spotify/player';
+import {
+  PLAYBACK_READY_NOTICE,
+  PLAYBACK_UNAVAILABLE_NOTICE,
+  StubPlayback,
+  type PlaybackPort,
+} from './spotify/player';
+import { PlaybackError, SpotifyWebPlayback } from './spotify/webPlayback';
 import { formatClock, useCountdown } from './useCountdown';
 import { sounds } from './sounds';
 import { TitleBar } from './retro/TitleBar';
@@ -32,6 +38,16 @@ const TIME_LIMIT_OPTIONS = [
 
 type DialogName = 'audio' | 'shortcuts' | 'about' | 'import' | 'exit';
 
+/** Messages for the `auth_error` codes the backend redirects with. */
+const AUTH_ERRORS: Record<string, string> = {
+  denied: 'Spotify sign-in was cancelled.',
+  invalid_state: 'That sign-in link expired. Please connect Spotify again.',
+  missing_code: 'Spotify did not return an authorization code. Please try again.',
+  not_configured: 'Spotify is not configured on this server.',
+  exchange_failed: 'Spotify refused the sign-in. Please try again.',
+  unexpected: 'Spotify sign-in failed unexpectedly. Please try again.',
+};
+
 export function App() {
   const [game, setGame] = useState<Game | undefined>();
   const [config, setConfig] = useState<ConfigStatus | undefined>();
@@ -49,8 +65,15 @@ export function App() {
   const [focusMode, setFocusMode] = useState(false);
   const [panelsHidden, setPanelsHidden] = useState(false);
 
-  const playback = useRef(new StubPlayback());
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | undefined>();
+
+  const playback = useRef<PlaybackPort>(new StubPlayback());
   const errorRef = useRef<HTMLDivElement>(null);
+  const latestGame = useRef<Game | undefined>(undefined);
+
+  const audioVolumeRef = useRef(audio.volume);
+  audioVolumeRef.current = audio.volume;
 
   const remainingMs = useCountdown(game?.excerpt_remaining_ms ?? 0, game?.status === 'playing');
   const excerptElapsed = game?.status === 'playing' && remainingMs <= 0;
@@ -69,10 +92,45 @@ export function App() {
     return () => controller.abort();
   }, []);
 
+  // Report an OAuth round trip once, then clean the query string so a reload
+  // does not repeat the message.
   useEffect(() => {
-    const player = playback.current;
+    const params = new URLSearchParams(window.location.search);
+    const failure = params.get('auth_error');
+    if (params.get('authenticated') === '1') {
+      setAuthNotice('Spotify account connected.');
+    } else if (failure) {
+      setAuthNotice(AUTH_ERRORS[failure] ?? 'Spotify sign-in did not complete. Please try again.');
+    }
+    if (failure || params.get('authenticated')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .authStatus({ signal: controller.signal })
+      .then(status => setAuthenticated(status.authenticated))
+      .catch(() => setAuthenticated(false));
+    return () => controller.abort();
+  }, [authNotice]);
+
+  // The stub keeps the game usable offline; a connected account swaps in the
+  // real Web Playback SDK so rounds actually make sound.
+  useEffect(() => {
+    void playback.current.stop();
+    playback.current = authenticated
+      ? new SpotifyWebPlayback({
+          getToken: async () => (await api.accessToken()).access_token,
+          volume: audioVolumeRef.current,
+        })
+      : new StubPlayback();
+  }, [authenticated]);
+
+  useEffect(() => {
     return () => {
-      void player.stop();
+      void playback.current.stop();
       stopDialUpEffect();
     };
   }, []);
@@ -88,7 +146,9 @@ export function App() {
     setBusy(true);
     setError(undefined);
     try {
-      setGame(await action());
+      const next = await action();
+      latestGame.current = next;
+      setGame(next);
       return true;
     } catch (caught) {
       setError(toDisplayMessage(caught));
@@ -143,19 +203,34 @@ export function App() {
     if (!game) return;
     const ok = await run(() => api.command(game.id, command));
     if (!ok) return;
-    if (command === 'start') {
-      sounds.start();
-      await playback.current.start({ uri: 'unknown', position_ms: 0 });
-    }
-    if (command === 'pause') await playback.current.pause();
-    if (command === 'resume') await playback.current.resume();
-    if (command === 'reveal') {
-      sounds.reveal();
-      await playback.current.stop();
-    }
-    if (command === 'next') {
-      sounds.next();
-      await playback.current.stop();
+    try {
+      if (command === 'start') {
+        sounds.start();
+        const target = latestGame.current?.playback;
+        await playback.current.start({
+          uri: target?.uri ?? 'unknown',
+          position_ms: target?.position_ms ?? 0,
+        });
+      }
+      if (command === 'pause') await playback.current.pause();
+      if (command === 'resume') await playback.current.resume();
+      if (command === 'reveal') {
+        sounds.reveal();
+        await playback.current.stop();
+      }
+      if (command === 'next') {
+        sounds.next();
+        await playback.current.stop();
+      }
+    } catch (caught) {
+      // Playback problems never abort the round: the host can still keep time
+      // and score while playing the track by other means.
+      setError(
+        caught instanceof PlaybackError
+          ? caught.message
+          : 'Spotify playback failed. The round continues without audio.',
+      );
+      window.requestAnimationFrame(() => errorRef.current?.focus());
     }
   }
 
@@ -355,8 +430,14 @@ export function App() {
         >
           <div className="window-body">
             <p className="notice" role="note">
-              {PLAYBACK_UNAVAILABLE_NOTICE}
+              {authenticated ? PLAYBACK_READY_NOTICE : PLAYBACK_UNAVAILABLE_NOTICE}
             </p>
+
+            {authNotice && (
+              <p className="notice" role="status">
+                {authNotice}
+              </p>
+            )}
 
             {config && config.problems.length > 0 && (
               <section className="notice notice-warning" aria-labelledby="config-problems">
@@ -718,8 +799,8 @@ export function App() {
           are bundled.
         </p>
         <p className="hint">
-          Playback control requires a Spotify Premium account and the Web Playback SDK, which is not
-          wired up yet.
+          Audio plays through the Spotify Web Playback SDK in this browser and requires a connected
+          Spotify Premium account. Without one, the quiz keeps time and score only.
         </p>
       </RetroDialog>
 

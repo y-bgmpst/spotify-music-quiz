@@ -32,11 +32,11 @@ describe('App', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the setup form and states that playback is not implemented', async () => {
+  it('shows the setup form and states that no Spotify account is connected', async () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: /set up the quiz/i })).toBeInTheDocument();
-    expect(screen.getByText(/audio playback is not implemented/i)).toBeInTheDocument();
+    expect(screen.getByText(/no spotify account is connected/i)).toBeInTheDocument();
   });
 
   it('labels every setup control', async () => {

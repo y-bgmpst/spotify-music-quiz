@@ -14,9 +14,15 @@ class QuizService:
     repository: GameRepository
 
     def create(
-        self, playlist_id: str, config: GameConfig, names: list[str], seed: int | None = None
+        self,
+        playlist_id: str,
+        config: GameConfig,
+        names: list[str],
+        seed: int | None = None,
+        catalog: SpotifyCatalog | None = None,
     ) -> Game:
-        tracks = normalize_tracks(self.catalog.playlist_items(playlist_id), config)
+        source = catalog or self.catalog
+        tracks = normalize_tracks(source.playlist_items(playlist_id), config)
         queue = build_queue(tracks, config, seed)
         game = Game(uuid4(), config, queue, [Participant(uuid4(), name) for name in names])
         self.repository.save(game)
