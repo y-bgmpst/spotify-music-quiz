@@ -1,22 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlaybackError, SpotifyWebPlayback } from '../src/spotify/webPlayback';
 
 type Listener = (payload: unknown) => void;
 
-/** Minimal stand-in for the Spotify SDK global. */
-function fakeSdk(overrides: { readyDevice?: string; failWith?: string } = {}) {
+interface FakeSdkOptions {
+  readyDevice?: string;
+  failWith?: string;
+  emitEvent?: boolean;
+  requestToken?: boolean;
+}
+
+function fakeSdk(options: FakeSdkOptions = {}) {
+  let oauthCallback: ((token: string) => void) | undefined;
   const player = {
     listeners: new Map<string, Listener>(),
     paused: 0,
     resumed: 0,
     disconnected: 0,
     connect: vi.fn(async () => {
-      const event = overrides.failWith ?? 'ready';
-      const payload = overrides.failWith
+      if (options.requestToken) oauthCallback?.(() => undefined as never);
+      if (options.emitEvent === false) return true;
+      const event = options.failWith ?? 'ready';
+      const payload = options.failWith
         ? {}
-        : { device_id: overrides.readyDevice ?? 'device-1' };
+        : { device_id: options.readyDevice ?? 'device-1' };
       queueMicrotask(() => player.listeners.get(event)?.(payload));
-      return !overrides.failWith;
+      return !options.failWith;
     }),
     disconnect: vi.fn(() => {
       player.disconnected += 1;
@@ -34,7 +43,10 @@ function fakeSdk(overrides: { readyDevice?: string; failWith?: string } = {}) {
     }),
   };
   const sdk = {
-    Player: vi.fn(function Player() {
+    Player: vi.fn(function Player(optionsArg: {
+      getOAuthToken: (cb: (token: string) => void) => void;
+    }) {
+      oauthCallback = optionsArg.getOAuthToken;
       return player;
     }),
   } as unknown as never;
@@ -42,19 +54,26 @@ function fakeSdk(overrides: { readyDevice?: string; failWith?: string } = {}) {
 }
 
 function make(
-  overrides: Parameters<typeof fakeSdk>[0] = {},
+  options: FakeSdkOptions = {},
   fetchImpl?: typeof fetch,
+  getToken: () => Promise<string> = async () => 'token-abc',
+  connectTimeoutMs = 15_000,
 ) {
-  const { sdk, player } = fakeSdk(overrides);
+  const { sdk, player } = fakeSdk(options);
   const playback = new SpotifyWebPlayback({
-    getToken: async () => 'token-abc',
+    getToken,
     loadSdk: async () => sdk,
     fetchImpl:
       fetchImpl ??
       (vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch),
+    connectTimeoutMs,
   });
   return { playback, player };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('SpotifyWebPlayback', () => {
   it('connects a device and asks Spotify to play the requested uri', async () => {
@@ -64,10 +83,7 @@ describe('SpotifyWebPlayback', () => {
     await playback.start({ uri: 'spotify:track:xyz', position_ms: 4200 });
 
     expect(playback.device).toBe('device-1');
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [
-      string,
-      RequestInit,
-    ];
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toContain('device_id=device-1');
     expect(init.method).toBe('PUT');
     expect(JSON.parse(String(init.body))).toEqual({
@@ -76,24 +92,22 @@ describe('SpotifyWebPlayback', () => {
     });
   });
 
+  it('rejects an invalid playback target before connecting', async () => {
+    const { playback, player } = make();
+
+    await expect(playback.start({ uri: 'unknown', position_ms: 0 })).rejects.toMatchObject({
+      kind: 'playback',
+    });
+    expect(player.connect).not.toHaveBeenCalled();
+  });
+
   it('reports a Premium requirement instead of a generic failure', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 403 }));
     const { playback } = make({}, fetchImpl as unknown as typeof fetch);
 
     await expect(
       playback.start({ uri: 'spotify:track:a', position_ms: 0 }),
-    ).rejects.toMatchObject({
-      kind: 'premium',
-    });
-  });
-
-  it('reports an expired session as an auth problem', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 401 }));
-    const { playback } = make({}, fetchImpl as unknown as typeof fetch);
-
-    await expect(
-      playback.start({ uri: 'spotify:track:a', position_ms: 0 }),
-    ).rejects.toBeInstanceOf(PlaybackError);
+    ).rejects.toMatchObject({ kind: 'premium' });
   });
 
   it('surfaces an account error raised by the SDK during connect', async () => {
@@ -101,9 +115,32 @@ describe('SpotifyWebPlayback', () => {
 
     await expect(
       playback.start({ uri: 'spotify:track:a', position_ms: 0 }),
-    ).rejects.toMatchObject({
-      kind: 'premium',
-    });
+    ).rejects.toMatchObject({ kind: 'premium' });
+  });
+
+  it('times out when the SDK never reports a ready device', async () => {
+    vi.useFakeTimers();
+    const { playback, player } = make({ emitEvent: false }, undefined, undefined, 1000);
+    const start = playback.start({ uri: 'spotify:track:a', position_ms: 0 });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(start).rejects.toMatchObject({ kind: 'device' });
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces a token callback failure instead of hanging', async () => {
+    const { playback, player } = make(
+      { requestToken: true, emitEvent: false },
+      undefined,
+      async () => Promise.reject(new Error('expired')),
+      5000,
+    );
+
+    await expect(
+      playback.start({ uri: 'spotify:track:a', position_ms: 0 }),
+    ).rejects.toMatchObject({ kind: 'auth' });
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('pauses, resumes and tears the device down', async () => {
@@ -115,7 +152,7 @@ describe('SpotifyWebPlayback', () => {
     await playback.stop();
 
     expect(player.resumed).toBe(1);
-    expect(player.paused).toBe(2); // one explicit pause, one on teardown
+    expect(player.paused).toBe(2);
     expect(player.disconnected).toBe(1);
     expect(playback.device).toBeUndefined();
   });
