@@ -32,9 +32,6 @@ settings: Settings = load_settings(os.environ)
 app = FastAPI(title="Spotify Music Quiz", version="0.1.0")
 register_error_handlers(app)
 
-# Explicit allowlist only. No wildcard origin, and only the methods and headers
-# this API actually uses. Credentials stay enabled for the same-machine host
-# session; a wildcard origin would be rejected by browsers anyway.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.allowed_origins),
@@ -52,13 +49,12 @@ auth_service = (
     else None
 )
 service = QuizService(FakeSpotifyCatalog(), repository)
-oauth_states = OAuthStateStore(clock=settings.clock)
+oauth_states = OAuthStateStore(settings.database_path, clock=settings.clock)
 
 FAKE_PLAYLIST_ID = "fake-playlist"
 
 
 def _spotify_token() -> SpotifyToken:
-    """Return a usable Spotify token or fail with the standard error envelope."""
     if not auth_service:
         raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
     try:
@@ -94,11 +90,6 @@ def _has_spotify_session() -> bool:
 
 
 def current_catalog() -> SpotifyCatalog:
-    """Real Spotify when a session exists, the demo catalogue otherwise.
-
-    Real URIs are required for audible playback; the fake catalogue keeps the
-    game flow usable (and the tests offline) without an account.
-    """
     if _has_spotify_session():
         return SpotifyWebCatalog(_access_token)
     return service.catalog
@@ -134,8 +125,6 @@ def payload(game: Game, reveal: bool = False) -> dict[str, object]:
         "rounds": len(game.queue),
         "excerpt_seconds": game.config.excerpt_seconds,
         "time_limit_seconds": game.config.time_limit_seconds,
-        # Backend-authoritative clock. The frontend renders this value and never
-        # decides on its own when a round has ended.
         "excerpt_remaining_ms": game.remaining_excerpt_ms(),
         "excerpt_deadline_ms": game.excerpt_deadline_ms,
         "participants": [
@@ -152,7 +141,6 @@ def payload(game: Game, reveal: bool = False) -> dict[str, object]:
             for e in game.score_events
         ],
     }
-    # Concealment invariant: answer fields are serialised only after reveal.
     if current and reveal and game.status is GameStatus.REVEALED:
         result["answer"] = {
             "title": current.track.title,
@@ -161,9 +149,6 @@ def payload(game: Game, reveal: bool = False) -> dict[str, object]:
             "image_url": current.track.image_url,
         }
     if current and game.status in (GameStatus.PLAYING, GameStatus.PAUSED):
-        # The track URI is required by the Web Playback SDK to actually play
-        # audio. It is opaque to the player on screen and carries no title,
-        # artist or album, so concealment is preserved.
         result["playback"] = {
             "uri": current.track.uri,
             "position_ms": current.excerpt_start_ms,
@@ -178,6 +163,12 @@ def _load(game_id: UUID) -> Game:
         raise _not_found() from exc
 
 
+@app.get("/")
+def root() -> RedirectResponse:
+    """Send direct browser visits to the bundled frontend."""
+    return RedirectResponse("/frontend/", status_code=307)
+
+
 @app.get("/api/v1/health")
 def health() -> dict[str, object]:
     return {
@@ -189,7 +180,6 @@ def health() -> dict[str, object]:
 
 @app.get("/api/v1/config")
 def config_status() -> dict[str, object]:
-    """Report configuration readiness without leaking any credential value."""
     return {
         "spotify_client_id_configured": bool(settings.spotify_client_id),
         "redirect_uri": settings.redirect_uri,
@@ -206,8 +196,6 @@ def auth_status() -> dict[str, bool]:
     try:
         token = auth_service.get_default_token()
     except TokenRefreshError:
-        # A refresh failure means the stored grant is no longer usable; report
-        # it as signed out rather than failing the status probe.
         return {"authenticated": False, "configured": True}
     return {
         "authenticated": token is not None and not token.is_expired(),
@@ -233,19 +221,8 @@ def _auth_redirect(params: str) -> RedirectResponse:
 def callback(
     code: str | None = None, state: str | None = None, error: str | None = None
 ) -> RedirectResponse:
-    """Spotify redirect target.
-
-    The path here MUST match SPOTIFY_REDIRECT_URI and the URI registered in the
-    Spotify dashboard, otherwise Spotify refuses the request before it arrives.
-
-    This endpoint is reached by a top-level browser navigation, so it always
-    answers with a redirect back into the app. Raising a JSON error here would
-    dead-end the user on a raw error document.
-    """
     auth_state = oauth_states.consume(state)
     if auth_state is None:
-        # Covers unknown, replayed, expired and missing state alike; the client
-        # is told nothing that would help distinguish them.
         logger.warning("oauth_callback_rejected reason=state_not_consumable")
         return _auth_redirect("auth_error=invalid_state")
     if error:
@@ -258,11 +235,9 @@ def callback(
     try:
         auth_service.exchange_code(code, settings.redirect_uri, auth_state.verifier)
     except TokenRefreshError as exc:
-        # The upstream message can embed the code or token payload, so it is
-        # logged without the sensitive values and never returned to the browser.
         logger.warning("oauth_token_exchange_failed cause=%s", type(exc).__name__)
         return _auth_redirect("auth_error=exchange_failed")
-    except Exception as exc:  # noqa: BLE001 - the browser must never see a 500 here
+    except Exception as exc:  # noqa: BLE001
         logger.exception("oauth_callback_unexpected type=%s", type(exc).__name__)
         return _auth_redirect("auth_error=unexpected")
     return _auth_redirect("authenticated=1")
@@ -270,11 +245,6 @@ def callback(
 
 @app.get("/api/v1/auth/token")
 def auth_token() -> dict[str, object]:
-    """Hand the browser a short-lived access token for the Web Playback SDK.
-
-    This is a single-user application bound to the loopback interface and a
-    strict CORS allowlist; the SDK cannot run without the token in the page.
-    """
     token = _spotify_token()
     return {
         "access_token": token.access_token,
