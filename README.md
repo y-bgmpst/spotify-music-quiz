@@ -2,6 +2,12 @@
 
 A local-first music guessing game with a Windows 95 desktop and Netscape Navigator-inspired interface.
 
+## Screenshot
+
+![Spotify Music Quiz example screen with concealed track, countdown and team scoreboard](docs/images/spotify-music-quiz-example.svg)
+
+*Example view using fake demo data. Live Spotify playback is not implied by this screenshot.*
+
 ## Windows — easiest way (no installation)
 
 You do not need Python, Node.js, Git, or administrator rights for the packaged version.
