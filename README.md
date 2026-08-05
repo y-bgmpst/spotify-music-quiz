@@ -1,162 +1,136 @@
-# 🎸 Spotify Music Quiz - 90s Edition
+# Spotify Music Quiz — Windows 95 / Netscape Edition
 
-[![Build Windows](https://github.com/YOUR_USERNAME/spotify-music-quiz/actions/workflows/build-windows.yml/badge.svg)](https://github.com/YOUR_USERNAME/spotify-music-quiz/actions/workflows/build-windows.yml)
-[![Build Ubuntu](https://github.com/YOUR_USERNAME/spotify-music-quiz/actions/workflows/build-ubuntu.yml/badge.svg)](https://github.com/YOUR_USERNAME/spotify-music-quiz/actions/workflows/build-ubuntu.yml)
+A local-first music guessing game with a Windows 95 desktop and Netscape Navigator-inspired interface.
 
-A nostalgic Windows 95 themed music quiz game powered by Spotify, featuring authentic 90s aesthetics with Netscape Navigator styling.
+## Current status
 
-## ✨ Features
+The game engine, SQLite persistence, OAuth PKCE helpers, fake Spotify catalog, scoring, and automated tests are implemented. Automated development uses fake tracks. Live Spotify Web Playback SDK wiring and production playlist loading still require manual integration and verification.
 
-- 🖥️ **Authentic Windows 95 Desktop** with taskbar and desktop icons
-- 🌐 **Netscape Navigator Window** with 90s browser styling
-- 🎵 **Spotify Integration** with OAuth 2.0 PKCE flow
-- ⏱️ **Timed Quizzes** (5 min / 10 min / Unlimited)
-- 🔊 **90s Sound Effects** with Web Audio API
-- 🏙️ **Frankfurt Skyline** background
-- 📦 **Windows Portable Build** (no installation required)
+The standalone playlist import script can search Spotify and create a private playlist. It uses a persistent search cache and conservative rate-limit handling.
 
-## 🚀 Quick Start
-
-### Prerequisites
+## Requirements
 
 - Python 3.11+
 - Node.js 20+
-- Spotify Developer Account
+- npm
+- A Spotify Developer application only for OAuth/import work
 
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/spotify-music-quiz.git
-   cd spotify-music-quiz
-   ```
-
-2. **Configure Spotify OAuth**
-   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-   - Create a new app
-   - Add redirect URI: `http://127.0.0.1:8000/api/v1/auth/callback`
-   - Copy your Client ID
-
-3. **Setup environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your SPOTIFY_CLIENT_ID
-   ```
-
-4. **Install dependencies**
-   ```bash
-   # Backend
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   pip install -r backend/requirements.txt
-
-   # Frontend
-   cd frontend
-   npm install
-   ```
-
-5. **Run the application**
-   ```bash
-   # Terminal 1: Backend
-   uvicorn music_quiz.main:app --reload --app-dir backend/src
-
-   # Terminal 2: Frontend
-   cd frontend
-   npm run dev
-   ```
-
-6. **Open in browser**
-   ```
-   http://localhost:5173
-   ```
-
-## 📦 Windows Portable Build
-
-Download the latest Windows portable build from [Releases](https://github.com/YOUR_USERNAME/spotify-music-quiz/releases).
-
-### Build from source
+## Local setup
 
 ```bash
-# Windows
-.\build-scripts\build-windows.ps1
+git clone https://github.com/y-bgmpst/spotify-music-quiz.git
+cd spotify-music-quiz
 
-# Linux
-chmod +x build-scripts/build-linux.sh
-./build-scripts/build-linux.sh
+cp .env.example .env
+# Edit .env and set SPOTIFY_CLIENT_ID when OAuth is needed.
+
+python3 -m venv .venv
+.venv/bin/pip install -e './backend[dev]'
+npm --prefix frontend ci
 ```
 
-## 🎮 How to Play
+On Windows PowerShell:
 
-1. Click **"🔑 Spotify Login"** to authenticate
-2. Select quiz time limit (5/10 minutes or unlimited)
-3. Click **"🚀 START QUIZ"**
-4. Listen to track excerpts and guess the song
-5. Award points to teams using the point buttons
-
-## 🛠️ Development
-
-### Project Structure
-
-```
-spotify-music-quiz/
-├── backend/
-│   ├── src/music_quiz/      # FastAPI backend
-│   └── tests/                # Backend tests
-├── frontend/
-│   ├── src/                  # React + TypeScript frontend
-│   └── public/               # Static assets
-├── scripts/
-│   ├── import-playlist.py    # Excel → Spotify import
-│   ├── batch-import-playlist.py  # Rate-limit-safe import
-│   └── find-playlists.py     # Find public 90s playlists
-├── build-scripts/            # Build automation
-└── .github/workflows/        # CI/CD pipelines
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.venv\Scripts\pip install -e '.\backend[dev]'
+npm --prefix frontend ci
 ```
 
-### Tech Stack
+The OAuth redirect must be registered exactly as:
 
-**Backend:**
-- Python 3.11
-- FastAPI
-- SQLite
-- HTTPX
-- python-dotenv
+```text
+http://127.0.0.1:8000/api/v1/auth/callback
+```
 
-**Frontend:**
-- React 18
-- TypeScript
-- Vite
-- Web Audio API
+Do not put a Spotify Client Secret in this project or in frontend code.
 
-## 📋 Import Your Own Playlist
+## Run the app
 
-1. Create Excel file with columns: Rank, Artist, Title, Year
-2. Run batch import (rate-limit safe):
-   ```bash
-   .venv/bin/python scripts/batch-import-playlist.py
-   ```
+Start the backend:
 
-## 🤝 Contributing
+```bash
+.venv/bin/uvicorn music_quiz.main:app --reload --app-dir backend/src
+```
 
-Contributions welcome! Please open an issue or submit a pull request.
+In another terminal, start the frontend:
 
-## 📄 License
+```bash
+npm --prefix frontend run dev
+```
 
-MIT License - see [LICENSE](LICENSE) for details
+Open <http://127.0.0.1:5173>.
 
-## 🎨 Design Credits
+Without Spotify credentials, use the fake playlist to exercise the game flow. The local database is stored at `.data/quiz.db` by default.
 
-- Windows 95 UI inspired by classic Microsoft design
-- Netscape Navigator styling
-- Frankfurt skyline silhouette
+## Import a playlist from Excel
 
-## 🔗 Links
+The rate-limit-aware importer expects an Excel file named `Top100_90er_Weltweit_Deutschland_Frankfurt.xlsx` in the repository root or in `~/Downloads`. Expected columns are rank, artist, title, and year.
 
-- [Spotify Web API Documentation](https://developer.spotify.com/documentation/web-api)
-- [Setup Guide](SPOTIFY_SETUP_GUIDE.md)
-- [Build Guide](BUILD_GUIDE.md)
-- [Windows Portable Guide](WINDOWS_PORTABLE.md)
+After logging in through the local app, run:
 
----
+```bash
+.venv/bin/python scripts/batch-import-playlist.py
+```
 
-Made with ❤️ in Frankfurt am Main 🏙️
+The importer:
+
+- reuses one HTTP connection;
+- caches successful and not-found searches in `.data/spotify-search-cache.json`;
+- paces all requests;
+- honors Spotify `Retry-After` responses;
+- uses bounded retry with backoff for transient failures;
+- adds tracks in Spotify-supported chunks of up to 100.
+
+Never commit `.env`, the SQLite database, or the search cache.
+
+## Quality checks
+
+```bash
+make format
+make lint
+make typecheck
+make test
+make build
+make verify
+```
+
+Frontend end-to-end tests require the backend to be running:
+
+```bash
+npm --prefix frontend run e2e
+```
+
+CI runs on both Ubuntu and Windows through:
+
+- `.github/workflows/ci-ubuntu.yml`
+- `.github/workflows/ci-windows.yml`
+
+## Repository layout
+
+```text
+backend/                 FastAPI app, domain rules, persistence, tests
+frontend/                React/Vite UI and browser tests
+scripts/                 Spotify import and playlist utilities
+docs/                    Architecture, security, setup, and status notes
+windows-portable/        Portable launcher assets
+.github/workflows/       Ubuntu and Windows CI
+```
+
+## Design direction
+
+The interface is intentionally inspired by Windows 95 and Netscape Navigator: beveled controls, a desktop/taskbar shell, a browser-like quiz window, dense status information, and restrained 1990s colors. See [the design-generation prompt](docs/win95-netscape-design-prompt.md) for the full visual and UX brief.
+
+## Security and Spotify boundaries
+
+- Do not download, cache, record, transform, or redistribute Spotify audio.
+- Do not expose answer metadata before reveal, including hidden DOM, ARIA labels, logs, media metadata, or track URIs.
+- Keep Spotify tokens and OAuth state out of logs and source control.
+- Live playback is unverified until tested with an eligible Spotify Premium account.
+
+See [docs/security.md](docs/security.md), [docs/spotify-setup.md](docs/spotify-setup.md), and [docs/live-playback-checklist.md](docs/live-playback-checklist.md).
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
