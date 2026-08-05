@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
@@ -236,7 +237,7 @@ def test_cascade_delete_participants_and_events(
     # Verify deletion cascaded
     import sqlite3
 
-    with sqlite3.connect(repo.db_path) as conn:
+    with closing(sqlite3.connect(repo.db_path)) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT COUNT(*) FROM participants WHERE game_id = ?", (str(sample_game.id),)
