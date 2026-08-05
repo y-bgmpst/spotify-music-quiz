@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -131,3 +133,60 @@ class TokenRepository:
                 expires_at=row["expires_at"],
                 scope=row["scope"],
             )
+
+    def save_oauth_state(self, state: str, verifier: str) -> None:
+        """Persist a one-time PKCE verifier without exposing it to the browser."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO oauth_states (state, verifier, created_at) VALUES (?, ?, ?)",
+                (state, verifier, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+
+    def consume_oauth_state(self, state: str) -> str | None:
+        """Atomically read and consume an OAuth state value."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT verifier FROM oauth_states WHERE state = ?", (state,)
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return None
+            conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+            conn.commit()
+            return str(row[0])
+
+    def create_session(self, user_id: str = "default", max_age: int = 30 * 24 * 60 * 60) -> str:
+        """Create an opaque browser session and store only its hash."""
+        session_id = secrets.token_urlsafe(32)
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+        now = int(time.time())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO auth_sessions (session_hash, user_id, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (session_hash, user_id, datetime.now(timezone.utc).isoformat(), now + max_age),
+            )
+            conn.commit()
+        return session_id
+
+    def get_session_user(self, session_id: str | None) -> str | None:
+        """Return the session user when the opaque cookie is present and unexpired."""
+        if not session_id:
+            return None
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT user_id FROM auth_sessions WHERE session_hash = ? AND expires_at > ?",
+                (session_hash, int(time.time())),
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    def delete_session(self, session_id: str | None) -> None:
+        if not session_id:
+            return
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM auth_sessions WHERE session_hash = ?", (session_hash,))
+            conn.commit()

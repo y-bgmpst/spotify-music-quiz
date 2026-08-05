@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, Game } from './api/client';
+import { api, debugEvent, Game } from './api/client';
 import { FakePlayback } from './spotify/player';
 import { sounds } from './sounds';
 
@@ -20,15 +20,51 @@ export function App() {
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [timeLimit, setTimeLimit] = useState<number | null>(300);
   const [showConfig, setShowConfig] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
   const [time, setTime] = useState(new Date());
 
   // Desktop state
   const [desktopIcons, setDesktopIcons] = useState<DesktopIcon[]>([
-    { id: 'mycomputer', label: 'My Computer', icon: '💻', x: 10, y: 10, selected: false },
-    { id: 'network', label: 'Network Neighborhood', icon: '🌐', x: 10, y: 100, selected: false },
-    { id: 'recyclebin', label: 'Recycle Bin', icon: '🗑️', x: 10, y: 190, selected: false },
-    { id: 'netscape', label: 'Netscape Navigator', icon: '🧭', x: 10, y: 280, selected: false },
-    { id: 'minesweeper', label: 'Minesweeper', icon: '💣', x: 10, y: 370, selected: false },
+    {
+      id: 'mycomputer',
+      label: 'My Computer',
+      icon: '💻',
+      x: 10,
+      y: 10,
+      selected: false,
+    },
+    {
+      id: 'network',
+      label: 'Network Neighborhood',
+      icon: '🌐',
+      x: 10,
+      y: 100,
+      selected: false,
+    },
+    {
+      id: 'recyclebin',
+      label: 'Recycle Bin',
+      icon: '🗑️',
+      x: 10,
+      y: 190,
+      selected: false,
+    },
+    {
+      id: 'netscape',
+      label: 'Netscape Navigator',
+      icon: '🧭',
+      x: 10,
+      y: 280,
+      selected: false,
+    },
+    {
+      id: 'minesweeper',
+      label: 'Minesweeper',
+      icon: '💣',
+      x: 10,
+      y: 370,
+      selected: false,
+    },
   ]);
 
   const [windowPos, setWindowPos] = useState({ x: 100, y: 50 });
@@ -38,6 +74,32 @@ export function App() {
   const player = useRef(new FakePlayback());
   const timer = useRef<number | undefined>();
   const totalTimer = useRef<number | undefined>();
+
+  useEffect(() => {
+    debugEvent('app_loaded', {
+      pathname: window.location.pathname,
+      query_keys: [...new URLSearchParams(window.location.search).keys()].join(
+        ',',
+      ),
+    });
+    const statusRequest = api.authStatus?.();
+    if (statusRequest) {
+      void statusRequest
+        .then((status) => {
+          debugEvent('auth_status', { authenticated: status.authenticated });
+          setAuthenticated(status.authenticated);
+        })
+        .catch((error: unknown) => {
+          debugEvent('auth_status_failed', {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+          setAuthenticated(false);
+        });
+    }
+    if (window.location.search) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   // Clock update
   useEffect(() => {
@@ -55,6 +117,7 @@ export function App() {
   );
 
   async function create() {
+    debugEvent('game_create_started');
     setBusy(true);
     setError(undefined);
     try {
@@ -67,6 +130,10 @@ export function App() {
         time_limit_seconds: timeLimit || undefined,
       });
       setGame(newGame);
+      debugEvent('game_created', {
+        status: newGame.status,
+        rounds: newGame.rounds,
+      });
       setShowConfig(false);
 
       if (timeLimit) {
@@ -133,15 +200,15 @@ export function App() {
 
   function handleIconClick(id: string, event: globalThis.MouseEvent) {
     if (!event.ctrlKey) {
-      setDesktopIcons(icons =>
-        icons.map(icon => ({
+      setDesktopIcons((icons) =>
+        icons.map((icon) => ({
           ...icon,
           selected: icon.id === id,
         })),
       );
     } else {
-      setDesktopIcons(icons =>
-        icons.map(icon =>
+      setDesktopIcons((icons) =>
+        icons.map((icon) =>
           icon.id === id ? { ...icon, selected: !icon.selected } : icon,
         ),
       );
@@ -171,7 +238,8 @@ export function App() {
     setDragging(false);
   }
 
-  const concealed = !game || (game.status !== 'revealed' && game.status !== 'finished');
+  const concealed =
+    !game || (game.status !== 'revealed' && game.status !== 'finished');
   const timeLimitWarning = totalSeconds > 0 && totalSeconds <= 60;
 
   return (
@@ -179,11 +247,18 @@ export function App() {
       className="desktop"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onClick={() => setDesktopIcons(icons => icons.map(i => ({ ...i, selected: false })))}
+      onClick={() =>
+        setDesktopIcons((icons) =>
+          icons.map((i) => ({ ...i, selected: false })),
+        )
+      }
     >
       {/* Desktop Icons */}
-      <div className="desktop-icons" onClick={(e: globalThis.MouseEvent) => e.stopPropagation()}>
-        {desktopIcons.map(icon => (
+      <div
+        className="desktop-icons"
+        onClick={(e: globalThis.MouseEvent) => e.stopPropagation()}
+      >
+        {desktopIcons.map((icon) => (
           <div
             key={icon.id}
             className={`desktop-icon ${icon.selected ? 'selected' : ''}`}
@@ -213,12 +288,22 @@ export function App() {
           <div className="window-title">
             <span className="netscape-logo">N</span>
             <span>Netscape: Spotify Music Quiz - 90s Edition</span>
-            <span className={`netscape-throbber ${busy || dragging ? 'loading' : ''}`}>N</span>
+            <span
+              className={`netscape-throbber ${busy || dragging ? 'loading' : ''}`}
+            >
+              N
+            </span>
           </div>
           <div className="window-controls">
-            <button className="window-button" title="Minimize">_</button>
-            <button className="window-button" title="Maximize">□</button>
-            <button className="window-button" title="Close">×</button>
+            <button className="window-button" title="Minimize">
+              _
+            </button>
+            <button className="window-button" title="Maximize">
+              □
+            </button>
+            <button className="window-button" title="Close">
+              ×
+            </button>
           </div>
         </div>
 
@@ -232,7 +317,13 @@ export function App() {
 
             {showConfig && !game && (
               <section className="card intro">
-                <p style={{ fontSize: '10px', color: '#808080', textAlign: 'center' }}>
+                <p
+                  style={{
+                    fontSize: '10px',
+                    color: '#808080',
+                    textAlign: 'center',
+                  }}
+                >
                   ★ NETSCAPE NAVIGATOR 3.0 COMPATIBLE ★
                 </p>
                 <h1 style={{ textAlign: 'center' }}>🎸 90s MUSIC QUIZ 🎸</h1>
@@ -253,35 +344,19 @@ export function App() {
                       <span>Test Playlist (12 Fake Tracks)</span>
                     </label>
                     <label>
-                      <input
-                        type="radio"
-                        name="playlist"
-                        value="90s-usa"
-                      />
+                      <input type="radio" name="playlist" value="90s-usa" />
                       <span>🇺🇸 Top 100 - 90s USA Hits</span>
                     </label>
                     <label>
-                      <input
-                        type="radio"
-                        name="playlist"
-                        value="90s-europe"
-                      />
+                      <input type="radio" name="playlist" value="90s-europe" />
                       <span>🇪🇺 Top 100 - 90s Europe Classics</span>
                     </label>
                     <label>
-                      <input
-                        type="radio"
-                        name="playlist"
-                        value="90s-germany"
-                      />
+                      <input type="radio" name="playlist" value="90s-germany" />
                       <span>🇩🇪 Top 100 - 90s Germany Hits</span>
                     </label>
                     <label>
-                      <input
-                        type="radio"
-                        name="playlist"
-                        value="custom"
-                      />
+                      <input type="radio" name="playlist" value="custom" />
                       <span>📝 Custom (Your Spotify Playlists)</span>
                     </label>
                   </div>
@@ -327,13 +402,32 @@ export function App() {
                   <button className="primary" onClick={create} disabled={busy}>
                     🚀 START QUIZ 🚀
                   </button>
-                  <button onClick={() => window.location.href = 'http://127.0.0.1:8000/api/v1/auth/login'} style={{ marginLeft: '8px' }}>
-                    🔑 Spotify Login
+                  <button
+                    onClick={() => {
+                      debugEvent('spotify_login_clicked', {
+                        authenticated,
+                      });
+                      window.location.href =
+                        'http://127.0.0.1:8000/api/v1/auth/login';
+                    }}
+                    style={{ marginLeft: '8px' }}
+                  >
+                    {authenticated
+                      ? '✅ Spotify Connected'
+                      : '🔑 Spotify Login'}
                   </button>
                 </div>
 
-                <p style={{ marginTop: '16px', fontSize: '10px', color: '#808080', textAlign: 'center' }}>
-                  Best viewed in 800×600 resolution • Made in Frankfurt am Main 🏙️
+                <p
+                  style={{
+                    marginTop: '16px',
+                    fontSize: '10px',
+                    color: '#808080',
+                    textAlign: 'center',
+                  }}
+                >
+                  Best viewed in 800×600 resolution • Made in Frankfurt am Main
+                  🏙️
                 </p>
               </section>
             )}
@@ -356,7 +450,9 @@ export function App() {
 
                 <div className="card stage">
                   {game.time_limit_seconds && totalSeconds > 0 && (
-                    <div className={`time-limit-timer ${timeLimitWarning ? 'warning' : ''}`}>
+                    <div
+                      className={`time-limit-timer ${timeLimitWarning ? 'warning' : ''}`}
+                    >
                       {formatTime(totalSeconds)}
                     </div>
                   )}
@@ -367,19 +463,32 @@ export function App() {
                       <h2>What are we listening to?</h2>
                       <div className="timer">{seconds}s</div>
                       {seconds === 0 && game.status === 'playing' && (
-                        <p style={{ color: '#ff0000', fontWeight: 'bold', animation: 'blink 1.5s infinite' }}>
+                        <p
+                          style={{
+                            color: '#ff0000',
+                            fontWeight: 'bold',
+                            animation: 'blink 1.5s infinite',
+                          }}
+                        >
                           ⚠️ TIME'S UP! ⚠️
                         </p>
                       )}
                     </>
                   ) : game.answer ? (
                     <>
-                      <p style={{ fontSize: '10px', fontWeight: 'bold', letterSpacing: '0.1em' }}>
+                      <p
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 'bold',
+                          letterSpacing: '0.1em',
+                        }}
+                      >
                         ★ THE ANSWER ★
                       </p>
                       <h1>{game.answer.title}</h1>
                       <p style={{ fontSize: '14px', margin: '12px 0' }}>
-                        <strong>Artist:</strong> {game.answer.artists.join(', ')}
+                        <strong>Artist:</strong>{' '}
+                        {game.answer.artists.join(', ')}
                       </p>
                       <p style={{ fontSize: '12px', color: '#808080' }}>
                         Album: {game.answer.album}
@@ -388,33 +497,51 @@ export function App() {
                   ) : (
                     <>
                       <h1>🏆 GAME COMPLETE! 🏆</h1>
-                      <p style={{ animation: 'blink 1.5s infinite' }}>Thanks for playing!</p>
+                      <p style={{ animation: 'blink 1.5s infinite' }}>
+                        Thanks for playing!
+                      </p>
                     </>
                   )}
 
                   <div className="controls">
                     {game.status === 'ready' && (
-                      <button onClick={() => void command('start')} disabled={busy}>
+                      <button
+                        onClick={() => void command('start')}
+                        disabled={busy}
+                      >
                         ▶️ Start
                       </button>
                     )}
                     {game.status === 'playing' && (
-                      <button onClick={() => void command('pause')} disabled={busy}>
+                      <button
+                        onClick={() => void command('pause')}
+                        disabled={busy}
+                      >
                         ⏸️ Pause
                       </button>
                     )}
                     {game.status === 'paused' && (
-                      <button onClick={() => void command('resume')} disabled={busy}>
+                      <button
+                        onClick={() => void command('resume')}
+                        disabled={busy}
+                      >
                         ▶️ Resume
                       </button>
                     )}
-                    {(game.status === 'playing' || game.status === 'paused') && (
-                      <button onClick={() => void command('reveal')} disabled={busy}>
+                    {(game.status === 'playing' ||
+                      game.status === 'paused') && (
+                      <button
+                        onClick={() => void command('reveal')}
+                        disabled={busy}
+                      >
                         💡 Reveal
                       </button>
                     )}
                     {game.status === 'revealed' && (
-                      <button onClick={() => void command('next')} disabled={busy}>
+                      <button
+                        onClick={() => void command('next')}
+                        disabled={busy}
+                      >
                         ⏭️ Next Round
                       </button>
                     )}
@@ -443,7 +570,9 @@ export function App() {
                     <p style={{ fontSize: '11px', marginBottom: '8px' }}>
                       Click a team to award points for this round:
                     </p>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <div
+                      style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}
+                    >
                       {game.participants.map((p) => (
                         <button
                           key={p.id}
@@ -481,8 +610,15 @@ export function App() {
         </div>
 
         <div className="system-tray">
-          <span className="tray-icon" title="Volume">🔊</span>
-          <div className="clock">{time.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
+          <span className="tray-icon" title="Volume">
+            🔊
+          </span>
+          <div className="clock">
+            {time.toLocaleTimeString('de-DE', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
         </div>
       </div>
     </div>

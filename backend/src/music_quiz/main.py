@@ -5,7 +5,7 @@ import secrets
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -38,7 +38,8 @@ token_repo = TokenRepository(db_path)
 client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
 auth_service = SpotifyAuthService(token_repo, client_id) if client_id else None
 service = QuizService(FakeSpotifyCatalog(), repository)
-auth_states: dict[str, AuthState] = {}
+SESSION_COOKIE = "spotify_quiz_session"
+SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
 
 class ConfigInput(BaseModel):
@@ -84,10 +85,16 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/v1/auth/status")
-def auth_status() -> dict[str, bool]:
+def auth_status(request: Request) -> dict[str, bool]:
     if not auth_service:
         return {"authenticated": False}
-    token = auth_service.get_default_token()
+    user_id = token_repo.get_session_user(request.cookies.get(SESSION_COOKIE))
+    if user_id is None:
+        return {"authenticated": False}
+    try:
+        token = auth_service.get_valid_token(user_id)
+    except TokenRefreshError:
+        return {"authenticated": False}
     return {"authenticated": token is not None and not token.is_expired()}
 
 
@@ -98,23 +105,25 @@ def login() -> RedirectResponse:
         raise HTTPException(503, "Spotify Client ID is not configured")
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
-    auth_states[state] = AuthState(state, verifier)
+    token_repo.save_oauth_state(state, verifier)
     return RedirectResponse(
         authorization_url(
             client_id,
             os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback"),
-            auth_states[state],
+            AuthState(state, verifier),
         )
     )
 
 
+@app.get("/api/v1/auth/callback")
 def callback(
-    code: str | None = None, state: str | None = None, error: str | None = None
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
 ) -> RedirectResponse:
-    if not state or state not in auth_states:
+    verifier = token_repo.consume_oauth_state(state) if state else None
+    if not verifier:
         raise HTTPException(400, "invalid OAuth state")
-    auth_state = auth_states[state]
-    del auth_states[state]
     if error or not code:
         raise HTTPException(400, "Spotify authorization was denied")
 
@@ -125,10 +134,21 @@ def callback(
         redirect_uri = os.getenv(
             "SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback"
         )
-        auth_service.exchange_code(code, redirect_uri, auth_state.verifier)
-        return RedirectResponse(frontend_origin + "/?authenticated=1")
+        auth_service.exchange_code(code, redirect_uri, verifier)
+        session_id = token_repo.create_session(max_age=SESSION_MAX_AGE)
+        response = RedirectResponse(frontend_origin + "/")
+        response.set_cookie(
+            SESSION_COOKIE,
+            session_id,
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",
+            path="/",
+        )
+        return response
     except TokenRefreshError as exc:
-        raise HTTPException(500, f"Token exchange failed: {exc}") from exc
+        raise HTTPException(500, "Token exchange failed") from exc
 
 
 @app.get("/api/v1/playlists")
