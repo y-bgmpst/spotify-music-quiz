@@ -87,6 +87,8 @@ jobs:
 
       - name: Frontend tests
         shell: bash
+        env:
+          NODE_OPTIONS: --localstorage-file=/tmp/spotify-music-quiz-localstorage
         run: npm --prefix frontend test -- --run
 
       - name: Frontend production build
