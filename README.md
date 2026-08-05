@@ -2,6 +2,27 @@
 
 A local-first music guessing game with a Windows 95 desktop and Netscape Navigator-inspired interface.
 
+## Windows — easiest way (no installation)
+
+You do not need Python, Node.js, Git, or administrator rights for the packaged version.
+
+1. Open the repository’s [Actions page](https://github.com/y-bgmpst/spotify-music-quiz/actions).
+2. Open the latest successful **Build Windows Portable** run.
+3. At the bottom, download the artifact named `spotify-music-quiz-windows-portable`.
+4. Extract the downloaded ZIP to your **Documents** folder or Desktop.
+   Do not use `C:\Program Files` or a read-only network folder.
+5. Open the extracted folder and double-click `launcher.bat`.
+6. The quiz opens in your browser at <http://127.0.0.1:8000/frontend/>.
+
+The demo works without Spotify login. It uses fake tracks so you can test the game immediately. For live Spotify features, open the bundled `.env` file with Notepad and enter your Spotify Client ID; never add a Client Secret.
+
+### If something goes wrong
+
+- **Nothing opens:** double-click `launcher.bat` again, then open <http://127.0.0.1:8000/frontend/> manually.
+- **Port already in use:** close another copy of the quiz, then retry.
+- **Windows SmartScreen warning:** the portable executable is unsigned; choose **More info → Run anyway** only if you trust the downloaded repository artifact.
+- **Your organization blocks local apps:** ask IT whether user-space applications and `127.0.0.1:8000` are allowed. The app cannot bypass company policy.
+
 ## Current status
 
 The game engine, SQLite persistence, OAuth PKCE helpers, fake Spotify catalog, scoring, and automated tests are implemented. Automated development uses fake tracks. Live Spotify Web Playback SDK wiring and production playlist loading still require manual integration and verification.
