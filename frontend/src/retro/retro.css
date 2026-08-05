@@ -1,0 +1,368 @@
+/*
+ * Windows 95 / Netscape Navigator furniture.
+ *
+ * This file only styles the retro *chrome* (title bar, menu bar, toolbar,
+ * location bar, status bar, dialogs). Content styling — cards, fields,
+ * buttons, tables — stays in styles.css so both stylesheets keep one
+ * source of truth and the accessible 16px / 44px baseline is not undone.
+ *
+ * No 98.css or similar package: a vendored retro theme resets global
+ * button/input styling and would fight the accessibility work already in
+ * styles.css.
+ */
+
+:root {
+  --retro-face: var(--win-face);
+  --retro-highlight: #ffffff;
+  --retro-light: #dfdfdf;
+  --retro-shadow: #808080;
+  --retro-dark: #000000;
+  --retro-title: var(--win-title);
+  --retro-title-end: #1084d0;
+  --retro-mono: 'Lucida Console', 'Courier New', monospace;
+  --retro-target: 44px;
+}
+
+.retro-icon {
+  image-rendering: pixelated;
+  flex: none;
+}
+
+/* --- Window shell --------------------------------------------------- */
+
+.retro-window {
+  width: min(1000px, 100%);
+  background: var(--win-face);
+  border: 2px outset var(--win-face);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.retro-window.is-focus-mode {
+  width: 100%;
+}
+
+.retro-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 8px;
+  background: linear-gradient(90deg, var(--retro-title) 0%, var(--retro-title-end) 100%);
+  color: var(--win-title-text);
+}
+
+.retro-titlebar-text {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--win-title-text);
+}
+
+.retro-titlebar-buttons {
+  display: flex;
+  gap: 3px;
+}
+
+/* The original buttons were tiny; these keep the 44px minimum target from
+   styles.css so they stay usable on touch screens. */
+.retro-window-button {
+  min-width: var(--retro-target);
+  min-height: var(--retro-target);
+  padding: 0;
+  font-weight: 700;
+  line-height: 1;
+  border: 2px outset var(--win-face);
+}
+
+.retro-window-button:active,
+.retro-window-button[aria-pressed='true'] {
+  border-style: inset;
+}
+
+/* --- Menu bar ------------------------------------------------------- */
+
+.retro-menubar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px 4px;
+  background: var(--win-face);
+  border-bottom: 1px solid var(--retro-shadow);
+}
+
+.retro-menu {
+  position: relative;
+}
+
+.retro-menu-trigger {
+  min-height: var(--retro-target);
+  padding: 8px 12px;
+  background: transparent;
+  border: 2px solid transparent;
+}
+
+.retro-menu-trigger:hover,
+.retro-menu-trigger[aria-expanded='true'] {
+  background: var(--retro-title);
+  color: var(--win-title-text);
+}
+
+.retro-menu-list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  background: var(--win-face);
+  border: 2px outset var(--win-face);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.retro-menu-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  min-height: var(--retro-target);
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.retro-menu-item[aria-disabled='true'] {
+  color: #5a5a5a;
+  cursor: not-allowed;
+}
+
+.retro-menu-item:not([aria-disabled='true']):hover,
+.retro-menu-item:focus {
+  background: var(--retro-title);
+  color: var(--win-title-text);
+}
+
+.retro-menu-item[aria-checked='true'] .retro-menu-item-label::before {
+  content: '\2713\00a0';
+}
+
+.retro-menu-item-hint {
+  font-family: var(--retro-mono);
+}
+
+/* --- Toolbar -------------------------------------------------------- */
+
+.retro-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  background: var(--win-face);
+  border-bottom: 1px solid var(--retro-shadow);
+  overflow-x: auto;
+}
+
+.retro-toolbar-button {
+  flex-direction: column;
+  gap: 2px;
+  min-width: var(--retro-target);
+  min-height: var(--retro-target);
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 2px solid transparent;
+  background: var(--win-face);
+}
+
+.retro-toolbar-button:hover:not([disabled]) {
+  border: 2px outset var(--win-face);
+}
+
+.retro-toolbar-button:active:not([disabled]),
+.retro-toolbar-button[aria-pressed='true'] {
+  border: 2px inset var(--win-face);
+}
+
+.retro-toolbar-button[disabled] .retro-icon {
+  opacity: 0.45;
+}
+
+/* --- Location bar --------------------------------------------------- */
+
+.retro-locationbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--win-face);
+  border-bottom: 1px solid var(--retro-shadow);
+}
+
+.retro-locationbar-label {
+  font-weight: 700;
+}
+
+.retro-locationbar-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-family: var(--retro-mono);
+  font-size: 14px;
+}
+
+/* --- Content -------------------------------------------------------- */
+
+.retro-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.retro-content.has-panel {
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+}
+
+.retro-panel {
+  padding: 12px;
+  border: 2px outset var(--win-face);
+}
+
+.retro-panel > :first-child {
+  margin-top: 0;
+}
+
+/* --- Status bar ----------------------------------------------------- */
+
+.retro-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 4px;
+  background: var(--win-face);
+  border-top: 2px outset var(--win-face);
+}
+
+.retro-status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 14px;
+  border: 1px inset var(--win-face);
+}
+
+.retro-status-primary {
+  flex: 1 1 220px;
+}
+
+.retro-status-clock output {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--retro-mono);
+}
+
+/* --- Dialogs -------------------------------------------------------- */
+
+.retro-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.retro-dialog {
+  display: block;
+  position: static;
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  color: var(--win-text);
+  background: var(--win-face);
+  border: 2px outset var(--win-face);
+  font: inherit;
+}
+
+.retro-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.retro-dialog-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.retro-dialog-body > :first-child {
+  margin-top: 0;
+}
+
+.retro-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--retro-shadow);
+}
+
+.retro-kbd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.retro-kbd-table th,
+.retro-kbd-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border: 1px solid var(--retro-shadow);
+}
+
+.retro-kbd-table td:first-child {
+  font-family: var(--retro-mono);
+  white-space: nowrap;
+}
+
+.retro-range {
+  width: 100%;
+  min-height: var(--retro-target);
+}
+
+/* --- Responsive ----------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .retro-content.has-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .retro-menubar,
+  .retro-toolbar {
+    flex-wrap: nowrap;
+  }
+
+  .retro-toolbar-label {
+    display: none;
+  }
+
+  .retro-toolbar-button {
+    padding: 4px;
+  }
+
+  .retro-menu-list {
+    left: auto;
+    right: 0;
+    min-width: 220px;
+  }
+}
