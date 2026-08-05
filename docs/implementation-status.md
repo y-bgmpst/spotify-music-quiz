@@ -28,6 +28,22 @@ Executed 2026-08-05 for rate-limit hardening:
 - `.venv/bin/pytest backend/tests -q` — passed (16 tests).
 - No live Spotify request was made; import behavior remains manually unverified.
 
+Executed 2026-08-05 for OAuth redirect/session repair:
+
+- `.venv/bin/pytest -q` — passed (19 backend tests).
+- `.venv/bin/ruff check backend/src backend/tests` — passed.
+- `.venv/bin/mypy backend/src` — passed.
+- `npm run typecheck` — passed.
+- `npm test -- --run` — passed (1 frontend test).
+- `npm run build` — passed.
+- Live Spotify OAuth/playback remains unverified without credentials.
+
+Additional CI hardening:
+
+- Added the missing frontend `format:check` script used by the Arch workflow.
+- Normalized `frontend/src/styles-win95-desktop.css` so the format check passes.
+- Confirmed the local `frontend/package-lock.json` contains only public npm registry package URLs.
+
 **Phase 6 additions:**
 - SQLite persistence layer with migrations (`music_quiz/persistence/`)
 - Repository protocol and SQLite implementation
