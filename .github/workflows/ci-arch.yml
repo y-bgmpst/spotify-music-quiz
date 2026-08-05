@@ -1,0 +1,94 @@
+name: CI - Arch Linux
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-arch-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify on Arch Linux
+    runs-on: ubuntu-latest
+
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Update Arch and install CI dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git \
+            nodejs \
+            npm \
+            python \
+            python-pip
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Arch toolchain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat /etc/arch-release
+          python --version
+          node --version
+          npm --version
+
+      - name: Create Python environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/pip install -e './backend[dev]'
+
+      - name: Install frontend dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          npm ci --prefix frontend
+
+      - name: Backend format check
+        shell: bash
+        run: .venv/bin/ruff format --check backend/src backend/tests
+
+      - name: Backend lint
+        shell: bash
+        run: .venv/bin/ruff check backend/src backend/tests
+
+      - name: Backend type check
+        shell: bash
+        run: .venv/bin/mypy backend/src
+
+      - name: Backend tests
+        shell: bash
+        run: .venv/bin/pytest backend/tests -q
+
+      - name: Frontend lint
+        shell: bash
+        run: npm --prefix frontend run lint
+
+      - name: Frontend type check
+        shell: bash
+        run: npm --prefix frontend run typecheck
+
+      - name: Frontend tests
+        shell: bash
+        run: npm --prefix frontend test -- --run
+
+      - name: Frontend production build
+        shell: bash
+        run: npm --prefix frontend run build
