@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Full history + tags are required to diff against the previous
+          # rolling "latest" release when generating release notes.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,8 +60,92 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Collects the commits between the commit of the previous rolling build
+      # and the current one, grouped by Conventional-Commit type.
+      - name: Generate release notes (main)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git fetch --tags --force --quiet
+
+          $previous = ''
+          $tagSha = (gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/latest" --jq '.object.sha')
+          if ($LASTEXITCODE -ne 0) { $tagSha = '' }
+          if ($tagSha) {
+            # Annotated tags point at a tag object, resolve it to the commit.
+            $resolved = (git rev-parse --verify --quiet "$tagSha^{commit}")
+            if ($LASTEXITCODE -eq 0 -and $resolved) { $previous = $resolved.Trim() }
+          }
+
+          if ($previous -and $previous -ne $env:GITHUB_SHA) {
+            $range = "$previous..$env:GITHUB_SHA"
+          } else {
+            $range = "$env:GITHUB_SHA~20..$env:GITHUB_SHA"
+            if (-not (git rev-parse --verify --quiet "$env:GITHUB_SHA~20")) {
+              $range = $env:GITHUB_SHA
+            }
+          }
+
+          $commits = @(git log --no-merges --pretty=format:'%H%x1f%s' $range | Where-Object { $_ })
+
+          $groups = [ordered]@{
+            'Features'      = @()
+            'Bugfixes'      = @()
+            'Performance'   = @()
+            'Dokumentation' = @()
+            'Tests & CI'    = @()
+            'Sonstiges'     = @()
+          }
+
+          foreach ($line in $commits) {
+            $parts = $line -split "`u{001f}"
+            $sha = $parts[0].Substring(0, 7)
+            $subject = $parts[1]
+            $key = switch -Regex ($subject) {
+              '^feat(\(|!|:)'                { 'Features'; break }
+              '^fix(\(|!|:)'                 { 'Bugfixes'; break }
+              '^perf(\(|!|:)'                { 'Performance'; break }
+              '^docs(\(|!|:)'                { 'Dokumentation'; break }
+              '^(test|ci|build|chore)(\(|!|:)' { 'Tests & CI'; break }
+              default                        { 'Sonstiges' }
+            }
+            $groups[$key] += "- $subject (``$sha``)"
+          }
+
+          $lines = @()
+          $lines += 'Automatischer Windows-Portable-Build vom letzten Commit auf `main`.'
+          $lines += ''
+          $lines += '## Wichtigste Änderungen seit dem letzten Build'
+          $lines += ''
+          if ($commits.Count -eq 0) {
+            $lines += '_Keine neuen Commits seit dem letzten Build._'
+          } else {
+            foreach ($key in $groups.Keys) {
+              if ($groups[$key].Count -gt 0) {
+                $lines += "### $key"
+                $lines += $groups[$key]
+                $lines += ''
+              }
+            }
+          }
+          $lines += '---'
+          $lines += ''
+          $lines += "- Commit: $env:GITHUB_SHA"
+          $lines += "- Build: $env:GITHUB_RUN_NUMBER"
+          if ($previous) {
+            $lines += "- Vergleich: https://github.com/$env:GITHUB_REPOSITORY/compare/$previous...$env:GITHUB_SHA"
+          }
+
+          $notes = ($lines -join "`n")
+          $notes | Out-File -FilePath release-notes.md -Encoding utf8
+          Write-Host $notes
 
       # Rolling build for the Releases sidebar: every push to main rewrites the
       # `latest` tag, replaces its assets and keeps it marked as "Latest".
@@ -68,11 +156,7 @@ jobs:
           tag_name: latest
           target_commitish: ${{ github.sha }}
           name: Latest Windows Portable Build
-          body: |
-            Automatischer Windows-Portable-Build vom letzten Commit auf `main`.
-
-            - Commit: ${{ github.sha }}
-            - Build: ${{ github.run_number }}
+          body_path: release-notes.md
           files: build/spotify-quiz-portable-*.zip
           # Otherwise every dated zip piles up on the same release.
           clean_release_assets: true
