@@ -129,8 +129,8 @@ def load_tracks_from_excel(file_path: str) -> list[dict]:
             continue
         tracks.append({
             "rank": row[0],
-            "artist": row[1],
-            "title": row[2],
+            "title": row[1],  # Titel is column 1
+            "artist": row[2],  # Künstler is column 2
             "year": row[3],
         })
 
