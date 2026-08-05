@@ -121,9 +121,7 @@ def test_two_store_instances_cannot_consume_the_same_state(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(("ttl", "cap"), [(0, 5), (-1, 5), (600, 0)])
-def test_invalid_configuration_is_rejected(
-    tmp_path: Path, ttl: float, cap: int
-) -> None:
+def test_invalid_configuration_is_rejected(tmp_path: Path, ttl: float, cap: int) -> None:
     with pytest.raises(ValueError):
         OAuthStateStore(
             str(tmp_path / "oauth-state.db"),
