@@ -1,0 +1,73 @@
+name: Build Ubuntu Package
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install pyinstaller
+
+    - name: Install Node dependencies
+      working-directory: frontend
+      run: npm ci
+
+    - name: Build Frontend
+      working-directory: frontend
+      run: npm run build
+
+    - name: Build Backend Executable
+      run: |
+        pyinstaller build-scripts/backend.spec
+
+    - name: Package Ubuntu Build
+      run: |
+        chmod +x build-scripts/build-linux.sh
+        ./build-scripts/build-linux.sh
+
+    - name: Upload Ubuntu Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotify-music-quiz-ubuntu-package
+        path: dist-linux/spotify-music-quiz-linux.tar.gz
+        retention-days: 30
+
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist-linux/spotify-music-quiz-linux.tar.gz
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

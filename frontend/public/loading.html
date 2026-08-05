@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loading - Netscape Navigator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "MS Sans Serif", "Microsoft Sans Serif", sans-serif;
+      font-size: 11px;
+      background: #008080;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .loading-dialog {
+      width: 400px;
+      background: #c0c0c0;
+      border: 2px solid;
+      border-color: #dfdfdf #000000 #000000 #dfdfdf;
+      box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+    }
+
+    .titlebar {
+      background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+      padding: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .titlebar-text {
+      color: white;
+      font-weight: bold;
+      flex: 1;
+      font-size: 11px;
+    }
+
+    .titlebar-icon {
+      width: 16px;
+      height: 16px;
+      background: linear-gradient(135deg, #1e4d8b 0%, #3a7bc8 50%, #5b9bd5 100%);
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 10px;
+      font-style: italic;
+    }
+
+    .dialog-body {
+      padding: 20px;
+    }
+
+    .status-text {
+      margin-bottom: 16px;
+      font-size: 11px;
+      color: #000000;
+    }
+
+    .progress-container {
+      border: 2px solid;
+      border-color: #808080 #dfdfdf #dfdfdf #808080;
+      background: white;
+      padding: 2px;
+      margin-bottom: 16px;
+    }
+
+    .progress-bar {
+      height: 20px;
+      background: repeating-linear-gradient(
+        45deg,
+        #000080,
+        #000080 4px,
+        #1084d0 4px,
+        #1084d0 8px
+      );
+      width: 0%;
+      animation: progress 3s ease-in-out forwards;
+    }
+
+    @keyframes progress {
+      0% { width: 0%; }
+      100% { width: 100%; }
+    }
+
+    .loading-details {
+      font-size: 10px;
+      color: #000000;
+      padding: 8px;
+      border: 1px solid;
+      border-color: #808080 #dfdfdf #dfdfdf #808080;
+      background: white;
+      height: 100px;
+      overflow: hidden;
+      font-family: "Courier New", monospace;
+      line-height: 1.4;
+    }
+
+    .loading-line {
+      opacity: 0;
+      animation: fadeIn 0.3s forwards;
+    }
+
+    @keyframes fadeIn {
+      to { opacity: 1; }
+    }
+
+    .netscape-logo {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #1e4d8b 0%, #3a7bc8 50%, #5b9bd5 100%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      color: white;
+      font-weight: bold;
+      font-style: italic;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 0.8;
+      }
+      50% {
+        transform: scale(1.1);
+        opacity: 1;
+        box-shadow: 0 0 20px rgba(58, 123, 200, 0.8);
+      }
+    }
+
+    .skyline {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 200px;
+      opacity: 0.15;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Frankfurt Skyline -->
+  <svg class="skyline" viewBox="0 0 800 200" preserveAspectRatio="xMidYMax slice">
+    <g fill="#000080">
+      <rect x="180" y="20" width="30" height="140"/>
+      <polygon points="180,20 195,10 210,20"/>
+      <rect x="230" y="30" width="28" height="130"/>
+      <rect x="237" y="10" width="14" height="20"/>
+      <rect x="280" y="40" width="50" height="120"/>
+      <rect x="350" y="25" width="26" height="135"/>
+      <polygon points="350,25 363,18 376,25"/>
+      <rect x="400" y="50" width="22" height="110"/>
+      <rect x="428" y="50" width="22" height="110"/>
+      <rect x="470" y="70" width="18" height="90"/>
+      <rect x="520" y="75" width="20" height="85"/>
+    </g>
+  </svg>
+
+  <div class="loading-dialog">
+    <div class="titlebar">
+      <div class="titlebar-icon">N</div>
+      <div class="titlebar-text">Netscape: Loading Document...</div>
+    </div>
+    <div class="dialog-body">
+      <div class="status-text" id="status">
+        Please wait while Netscape Navigator loads the document...
+      </div>
+      <div class="progress-container">
+        <div class="progress-bar"></div>
+      </div>
+      <div class="loading-details" id="details"></div>
+    </div>
+  </div>
+
+  <div class="netscape-logo">N</div>
+
+  <script>
+    const loadingSteps = [
+      'Connecting to server...',
+      'Sending request headers...',
+      'Waiting for response...',
+      'Receiving data...',
+      'Loading HTML document...',
+      'Parsing document structure...',
+      'Loading stylesheets...',
+      'Rendering frame 1 of 8...',
+      'Rendering frame 2 of 8...',
+      'Rendering frame 3 of 8...',
+      'Rendering frame 4 of 8...',
+      'Rendering frame 5 of 8...',
+      'Rendering frame 6 of 8...',
+      'Rendering frame 7 of 8...',
+      'Rendering frame 8 of 8...',
+      'Loading images...',
+      'Initializing JavaScript...',
+      'Document complete!',
+    ];
+
+    const details = document.getElementById('details');
+    const status = document.getElementById('status');
+    let currentStep = 0;
+
+    function addLine() {
+      if (currentStep < loadingSteps.length) {
+        const line = document.createElement('div');
+        line.className = 'loading-line';
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${loadingSteps[currentStep]}`;
+        line.style.animationDelay = '0s';
+        details.appendChild(line);
+        details.scrollTop = details.scrollHeight;
+        currentStep++;
+
+        const delay = Math.random() * 150 + 100;
+        setTimeout(addLine, delay);
+      } else {
+        status.textContent = 'Authentication successful! Redirecting...';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 500);
+      }
+    }
+
+    // Start loading animation
+    setTimeout(addLine, 300);
+  </script>
+</body>
+</html>

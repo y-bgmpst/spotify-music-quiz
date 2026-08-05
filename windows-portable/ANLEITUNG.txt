@@ -1,0 +1,172 @@
+===============================================
+ SPOTIFY MUSIC QUIZ - PORTABLE EDITION
+ Windows öD-kompatibel (GPO-geeignet)
+===============================================
+
+VERSION: 1.0
+DATUM: 2026-08-04
+SYSTEM: Windows 10/11 (64-bit)
+
+===============================================
+ INSTALLATION (KEINE ADMIN-RECHTE NÖTIG!)
+===============================================
+
+1. ZIP-Datei entpacken in:
+   - Eigene Dateien\spotify-quiz\
+   - oder Desktop
+   - oder USB-Stick
+
+2. Spotify Developer App einrichten:
+   a) Gehe zu: https://developer.spotify.com/dashboard
+   b) Erstelle neue App
+   c) Redirect URI: http://127.0.0.1:8000/api/v1/auth/callback
+   d) Kopiere "Client ID"
+
+3. Client ID eintragen:
+   - Öffne .env mit Notepad
+   - Ersetze "your-client-id-here" mit deiner Client ID
+   - Speichern
+
+4. Starten:
+   - Doppelklick auf: launcher.bat
+   - Browser öffnet sich automatisch
+   - Bei Firewall-Warnung: "Zugriff erlauben"
+
+===============================================
+ WICHTIG FÜR ÖD-LAPTOPS
+===============================================
+
+✓ KEINE Installation nötig
+✓ KEINE Admin-Rechte erforderlich
+✓ Läuft aus Benutzerverzeichnis
+✓ Datenbank in eigenem Ordner (data/)
+✓ Kein Internet für Quiz nötig (nur für Login)
+
+⚠ Firewall-Popup beim ersten Start:
+   → "Zugriff erlauben" anklicken
+   → Nur einmalig nötig
+
+⚠ Windows Defender SmartScreen:
+   → "Weitere Informationen" → "Trotzdem ausführen"
+   → Datei ist sicher, nur nicht signiert
+
+===============================================
+ SPOTIFY PREMIUM BENÖTIGT
+===============================================
+
+Diese App nutzt die Spotify Web Playback API.
+Diese funktioniert NUR mit Premium-Accounts.
+
+Ohne Premium:
+→ Quiz läuft im DEMO-MODUS (Fake-Katalog)
+→ Setze in .env: FAKE_SPOTIFY=true
+
+===============================================
+ VERWENDUNG
+===============================================
+
+1. Doppelklick auf launcher.bat
+2. Browser öffnet sich automatisch
+3. "Login" klicken → Spotify-Autorisierung
+4. Quiz konfigurieren:
+   - Zeitlimit: 5/10 Min oder unbegrenzt
+   - Teams: 2 Standard-Teams
+5. "START QUIZ" klicken
+6. Musik raten!
+
+BEENDEN:
+→ Im Launcher-Fenster: Beliebige Taste drücken
+→ Oder einfach Fenster schließen
+
+===============================================
+ PROBLEMBEHEBUNG
+===============================================
+
+Backend startet nicht:
+→ Prüfe ob Port 8000 bereits belegt ist
+→ Schließe andere Programme
+→ Neustarten
+
+Browser öffnet sich nicht:
+→ Manuell öffnen: http://127.0.0.1:8000/frontend/
+
+"Invalid Redirect URI" beim Login:
+→ Prüfe Spotify Dashboard → Settings → Redirect URIs
+→ Muss exakt sein: http://127.0.0.1:8000/api/v1/auth/callback
+
+Token abgelaufen:
+→ Wird automatisch erneuert
+→ Bei Problemen: data/quiz.db löschen → neu einloggen
+
+Kein Ton:
+→ Prüfe Windows-Lautstärke
+→ Prüfe Browser-Lautstärke-Tab
+
+===============================================
+ TECHNISCHE DETAILS
+===============================================
+
+Enthaltene Komponenten:
+- Backend: Python FastAPI (kompiliert)
+- Frontend: React 90s-Retro-Design
+- Datenbank: SQLite (data/quiz.db)
+- Server: Uvicorn (embedded)
+
+Systemanforderungen:
+- Windows 10/11 (64-bit)
+- 4 GB RAM (empfohlen)
+- 100 MB freier Speicher
+- Internetzugang für Spotify-Login
+
+Ports:
+- Backend: 127.0.0.1:8000 (localhost only)
+- Keine externen Verbindungen
+
+Daten:
+- Alles lokal in data/ Ordner
+- Keine Cloud-Verbindung
+- Token in verschlüsselter SQLite-DB
+
+===============================================
+ DATENSCHUTZ
+===============================================
+
+✓ DSGVO-konform
+✓ Alle Daten lokal
+✓ Keine Telemetrie
+✓ Kein Analytics
+✓ Open Source
+
+Gespeicherte Daten:
+- Spotify OAuth Token (verschlüsselt)
+- Quiz-Historie (lokal)
+- Team-Namen und Scores
+
+Spotify erhält:
+- Deine Playlists (lesend)
+- Playback-Befehle
+- Standard OAuth-Infos
+
+===============================================
+ SUPPORT & UPDATES
+===============================================
+
+GitHub: https://github.com/your-repo/spotify-music-quiz
+Dokumentation: CLAUDE.md im Projekt
+Lizenz: MIT
+
+Entwickelt mit ❤️ in Frankfurt am Main 🏙️
+
+===============================================
+ VERSION 1.0 - 90s RETRO EDITION
+===============================================
+
+Features:
+✨ Windows 95 Design mit Frankfurt-Skyline
+✨ Zeitlimit-Modi (5/10 Min)
+✨ 90er Sound-Effekte
+✨ LED-Display-Timer
+✨ Punktevergabe-System
+✨ Offline-fähig (nach Login)
+
+Viel Spaß beim Musik-Raten! 🎵

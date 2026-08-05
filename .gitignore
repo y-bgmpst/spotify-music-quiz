@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.npm
+.yarn/
+*.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
+
+# Build artifacts
+build/
+dist-windows/
+dist-linux/
+*.spec
+!windows-portable/backend.spec
+*.exe
+*.msi
+windows-portable/dist/
+windows-portable/build/
+
+# Database
+.data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Secrets & Config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temp
+tmp/
+temp/
+*.tmp
+
+# Claude
+.claude/
+
+# Disposable review and handover artifacts
+HANDOVER*.md
+*_HANDOVER.md
+REVIEW_HANDOVER*.md
+*_REVIEW_HANDOVER.md
+REVIEW_REPORT.md
+*_REVIEW_REPORT.md
+handover/
+review-handover/
+
+# Accidental conversational exports
+Verstanden. Ich warte auf deine*
