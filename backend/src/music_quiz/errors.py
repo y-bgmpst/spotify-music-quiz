@@ -39,7 +39,8 @@ SENSITIVE_KEYS = frozenset(
 def redact(context: dict[str, Any]) -> dict[str, Any]:
     """Replace sensitive OAuth values so they never reach logs."""
     return {
-        key: (REDACTED if key.lower() in SENSITIVE_KEYS else value) for key, value in context.items()
+        key: (REDACTED if key.lower() in SENSITIVE_KEYS else value)
+        for key, value in context.items()
     }
 
 
@@ -89,9 +90,7 @@ def register_error_handlers(app: FastAPI) -> None:
             type(exc.cause).__name__ if exc.cause else "none",
             exc.log_context,
         )
-        return JSONResponse(
-            status_code=exc.status_code, content=error_body(exc.code, exc.message)
-        )
+        return JSONResponse(status_code=exc.status_code, content=error_body(exc.code, exc.message))
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, __: RequestValidationError) -> JSONResponse:

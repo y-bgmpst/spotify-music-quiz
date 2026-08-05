@@ -133,9 +133,7 @@ def test_award_and_reverse_score_persist(api) -> None:
     reloaded = client.get(f"/api/v1/games/{game_id}").json()
     assert next(p for p in reloaded["participants"] if p["id"] == participant)["score"] == 2
 
-    reversed_state = client.post(
-        f"/api/v1/games/{game_id}/scores/{event_id}/reverse"
-    ).json()
+    reversed_state = client.post(f"/api/v1/games/{game_id}/scores/{event_id}/reverse").json()
     assert next(p for p in reversed_state["participants"] if p["id"] == participant)["score"] == 0
     assert reversed_state["score_events"][0]["reversed"] is True
 

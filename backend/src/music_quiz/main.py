@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field
 from music_quiz.auth import AuthState, authorization_url
 from music_quiz.auth_service import SpotifyAuthService, TokenRefreshError
 from music_quiz.config import Settings, load_settings
-from music_quiz.errors import AppError, register_error_handlers
 from music_quiz.domain.game import DomainError, ExcerptMode, Game, GameConfig, GameStatus
+from music_quiz.errors import AppError, register_error_handlers
 from music_quiz.oauth_state import OAuthStateStore
 from music_quiz.persistence.sqlite import SQLiteGameRepository
 from music_quiz.persistence.tokens import TokenRepository
