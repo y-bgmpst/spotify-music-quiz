@@ -14,7 +14,9 @@ SYSTEM: Windows 10/11 (64-bit)
 1. ZIP-Datei entpacken in:
    - Eigene Dateien\spotify-quiz\
    - oder Desktop
-   - oder USB-Stick
+   - oder USB-Stick (nur wenn das Laufwerk Schreibrechte erlaubt)
+
+   Nicht nach C:\Programme oder in ein schreibgeschütztes Netzlaufwerk entpacken.
 
 2. Spotify Developer App einrichten:
    a) Gehe zu: https://developer.spotify.com/dashboard
@@ -30,7 +32,7 @@ SYSTEM: Windows 10/11 (64-bit)
 4. Starten:
    - Doppelklick auf: launcher.bat
    - Browser öffnet sich automatisch
-   - Bei Firewall-Warnung: "Zugriff erlauben"
+   - Die App bindet nur an 127.0.0.1 und benötigt normalerweise keine eingehende Firewall-Freigabe.
 
 ===============================================
  WICHTIG FÜR ÖD-LAPTOPS
@@ -42,24 +44,22 @@ SYSTEM: Windows 10/11 (64-bit)
 ✓ Datenbank in eigenem Ordner (data/)
 ✓ Kein Internet für Quiz nötig (nur für Login)
 
-⚠ Firewall-Popup beim ersten Start:
-   → "Zugriff erlauben" anklicken
-   → Nur einmalig nötig
+⚠ Falls die Organisationsrichtlinie lokale Browser-Server blockiert:
+   → IT-Freigabe für eine lokale Anwendung auf 127.0.0.1:8000 erforderlich.
 
 ⚠ Windows Defender SmartScreen:
    → "Weitere Informationen" → "Trotzdem ausführen"
    → Datei ist sicher, nur nicht signiert
 
 ===============================================
- SPOTIFY PREMIUM BENÖTIGT
+ SPOTIFY / LIVE-MODUS
 ===============================================
 
-Diese App nutzt die Spotify Web Playback API.
-Diese funktioniert NUR mit Premium-Accounts.
+Die portable Demo nutzt den lokalen Fake-Katalog.
+Live-Spotify-Wiedergabe ist in dieser Version noch nicht verifiziert.
 
 Ohne Premium:
 → Quiz läuft im DEMO-MODUS (Fake-Katalog)
-→ Setze in .env: FAKE_SPOTIFY=true
 
 ===============================================
  VERWENDUNG
@@ -67,7 +67,7 @@ Ohne Premium:
 
 1. Doppelklick auf launcher.bat
 2. Browser öffnet sich automatisch
-3. "Login" klicken → Spotify-Autorisierung
+3. Für die lokale Demo ist kein Login erforderlich.
 4. Quiz konfigurieren:
    - Zeitlimit: 5/10 Min oder unbegrenzt
    - Teams: 2 Standard-Teams
@@ -95,7 +95,7 @@ Browser öffnet sich nicht:
 → Muss exakt sein: http://127.0.0.1:8000/api/v1/auth/callback
 
 Token abgelaufen:
-→ Wird automatisch erneuert
+→ Wird automatisch erneuert, sofern Live-OAuth eingerichtet ist
 → Bei Problemen: data/quiz.db löschen → neu einloggen
 
 Kein Ton:
@@ -120,25 +120,24 @@ Systemanforderungen:
 
 Ports:
 - Backend: 127.0.0.1:8000 (localhost only)
-- Keine externen Verbindungen
+- Nur lokale Verbindung auf 127.0.0.1; Spotify-Verbindungen nur bei aktivierter Live-Konfiguration
 
 Daten:
-- Alles lokal in data/ Ordner
-- Keine Cloud-Verbindung
-- Token in verschlüsselter SQLite-DB
+- Quizdaten und lokale Tokens liegen im data/ Ordner
+- Die App sendet nur für konfigurierte Spotify-Funktionen Daten an Spotify
+- Die SQLite-Datei wird von der App nicht verschlüsselt; schützt den Benutzerordner entsprechend.
 
 ===============================================
  DATENSCHUTZ
 ===============================================
 
-✓ DSGVO-konform
-✓ Alle Daten lokal
 ✓ Keine Telemetrie
+✓ Quizdaten lokal
 ✓ Kein Analytics
 ✓ Open Source
 
 Gespeicherte Daten:
-- Spotify OAuth Token (verschlüsselt)
+- Spotify OAuth Token (lokal gespeichert)
 - Quiz-Historie (lokal)
 - Team-Namen und Scores
 
@@ -151,7 +150,7 @@ Spotify erhält:
  SUPPORT & UPDATES
 ===============================================
 
-GitHub: https://github.com/your-repo/spotify-music-quiz
+GitHub: https://github.com/y-bgmpst/spotify-music-quiz
 Dokumentation: CLAUDE.md im Projekt
 Lizenz: MIT
 
