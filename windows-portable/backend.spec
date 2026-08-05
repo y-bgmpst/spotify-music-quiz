@@ -7,9 +7,11 @@ Builds standalone Windows executable with all dependencies embedded
 from pathlib import Path
 
 block_cipher = None
+spec_dir = Path(__file__).resolve().parent
+project_root = spec_dir.parent
 
 # Collect all data files
-backend_src = Path('backend/src/music_quiz')
+backend_src = project_root / 'backend/src/music_quiz'
 datas = [
     (str(backend_src / 'persistence/schema.sql'), 'music_quiz/persistence'),
 ]
@@ -33,8 +35,8 @@ hiddenimports = [
 ]
 
 a = Analysis(
-    ['windows-portable/server.py'],
-    pathex=['backend/src'],
+    [str(spec_dir / 'server.py')],
+    pathex=[str(project_root / 'backend/src')],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
