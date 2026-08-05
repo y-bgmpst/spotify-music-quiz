@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -29,7 +30,7 @@ class SQLiteGameRepository:
         """Create database and apply schema if needed."""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         schema_path = Path(__file__).parent / "schema.sql"
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(schema_path.read_text())
             self._migrate(conn)
@@ -46,7 +47,7 @@ class SQLiteGameRepository:
     def save(self, game: Game) -> None:
         """Save or update a game."""
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
 
             # Check if game exists
@@ -156,7 +157,7 @@ class SQLiteGameRepository:
 
     def get(self, game_id: UUID) -> Game:
         """Retrieve a game by ID. Raises KeyError if not found."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -232,7 +233,7 @@ class SQLiteGameRepository:
 
     def list(self) -> list[Game]:
         """List all games."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM games")
             game_ids = [UUID(row[0]) for row in cursor.fetchall()]
@@ -240,7 +241,7 @@ class SQLiteGameRepository:
 
     def delete(self, game_id: UUID) -> None:
         """Delete a game. Raises KeyError if not found."""
-        with sqlite3.connect(self.db_path) as conn:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
             cursor = conn.cursor()
 
             # Enable foreign key constraints
