@@ -7,7 +7,9 @@ Builds standalone Windows executable with all dependencies embedded
 from pathlib import Path
 
 block_cipher = None
-spec_dir = Path(__file__).resolve().parent
+spec_dir = Path.cwd()
+if spec_dir.name != 'windows-portable':
+    spec_dir = spec_dir / 'windows-portable'
 project_root = spec_dir.parent
 
 # Collect all data files
