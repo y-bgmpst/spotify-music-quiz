@@ -1,20 +1,46 @@
-// 90s-style sound effects using Web Audio API
+/**
+ * Short 90s-style UI sound effects, synthesised with the Web Audio API.
+ *
+ * All effects are generated at runtime, so the repository ships no audio
+ * assets. Every entry point is a no-op when sounds are muted or when the
+ * environment has no Web Audio implementation (jsdom, older Safari, a browser
+ * that blocks audio before a user gesture).
+ */
 class SoundEffects {
   private audioContext: AudioContext | null = null;
+  private enabled = true;
+  /** Scales every effect. 0 mutes without changing the enabled flag. */
+  private masterVolume = 0.5;
 
-  private getContext(): AudioContext {
-    if (!this.audioContext) {
-      this.audioContext = new AudioContext();
+  /** Master switch, driven by the audio preferences dialog. */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+  }
+
+  setVolume(volume: number): void {
+    if (!Number.isFinite(volume)) return;
+    this.masterVolume = Math.min(1, Math.max(0, volume));
+  }
+
+  private getContext(): AudioContext | null {
+    if (!this.enabled || this.masterVolume === 0) return null;
+    if (this.audioContext) return this.audioContext;
+    const Ctor =
+      typeof window === 'undefined'
+        ? undefined
+        : (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
+    if (!Ctor) return null;
+    try {
+      this.audioContext = new Ctor();
+    } catch {
+      return null;
     }
     return this.audioContext;
   }
 
-  private beep(
-    frequency: number,
-    duration: number,
-    volume: number = 0.3,
-  ): void {
+  private beep(frequency: number, duration: number, volume = 0.3): void {
     const ctx = this.getContext();
+    if (!ctx) return;
     const oscillator = ctx.createOscillator();
     const gainNode = ctx.createGain();
 
@@ -24,11 +50,9 @@ class SoundEffects {
     oscillator.frequency.value = frequency;
     oscillator.type = 'square'; // Classic 90s beep sound
 
-    gainNode.gain.setValueAtTime(volume, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(
-      0.01,
-      ctx.currentTime + duration,
-    );
+    const peak = Math.max(0.0001, volume * this.masterVolume);
+    gainNode.gain.setValueAtTime(peak, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
 
     oscillator.start(ctx.currentTime);
     oscillator.stop(ctx.currentTime + duration);
@@ -37,6 +61,7 @@ class SoundEffects {
   // Windows 95 startup chord inspired
   start(): void {
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     // Play a chord: C, E, G
@@ -51,8 +76,8 @@ class SoundEffects {
       osc.type = 'sine';
 
       gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.15, now + 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+      gain.gain.linearRampToValueAtTime(0.15 * this.masterVolume, now + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
 
       osc.start(now + i * 0.05);
       osc.stop(now + 1.5);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   toDisplayMessage,
@@ -9,6 +9,20 @@ import {
 import { PLAYBACK_UNAVAILABLE_NOTICE, StubPlayback } from './spotify/player';
 import { formatClock, useCountdown } from './useCountdown';
 import { sounds } from './sounds';
+import { TitleBar } from './retro/TitleBar';
+import { MenuBar, type Menu } from './retro/MenuBar';
+import { Toolbar, type ToolbarAction } from './retro/Toolbar';
+import { LocationBar } from './retro/LocationBar';
+import { StatusBar } from './retro/StatusBar';
+import { RetroDialog } from './retro/RetroDialog';
+import { RetroIcon, type RetroIconName } from './retro/icons';
+import {
+  loadAudioPreferences,
+  saveAudioPreferences,
+  shouldPlayIntro,
+  type AudioPreferences,
+} from './audio/preferences';
+import { playDialUpEffect, stopDialUpEffect } from './audio/dialUpEffect';
 
 const TIME_LIMIT_OPTIONS = [
   { value: 300, label: '5 minutes' },
@@ -16,8 +30,7 @@ const TIME_LIMIT_OPTIONS = [
   { value: 0, label: 'No limit' },
 ] as const;
 
-/** Decorative desktop furniture. Not interactive, so it is hidden from AT. */
-const DESKTOP_ICONS = ['My Computer', 'Network Neighborhood', 'Recycle Bin', 'Minesweeper'];
+type DialogName = 'audio' | 'shortcuts' | 'about' | 'import' | 'exit';
 
 export function App() {
   const [game, setGame] = useState<Game | undefined>();
@@ -30,13 +43,16 @@ export function App() {
   const [teams, setTeams] = useState('Team A, Team B');
   const [clock, setClock] = useState(() => new Date());
 
+  const [dialog, setDialog] = useState<DialogName | undefined>();
+  const [audio, setAudio] = useState<AudioPreferences>(() => loadAudioPreferences());
+  const [handshaking, setHandshaking] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [panelsHidden, setPanelsHidden] = useState(false);
+
   const playback = useRef(new StubPlayback());
   const errorRef = useRef<HTMLDivElement>(null);
 
-  const remainingMs = useCountdown(
-    game?.excerpt_remaining_ms ?? 0,
-    game?.status === 'playing',
-  );
+  const remainingMs = useCountdown(game?.excerpt_remaining_ms ?? 0, game?.status === 'playing');
   const excerptElapsed = game?.status === 'playing' && remainingMs <= 0;
 
   useEffect(() => {
@@ -57,8 +73,16 @@ export function App() {
     const player = playback.current;
     return () => {
       void player.stop();
+      stopDialUpEffect();
     };
   }, []);
+
+  // Preferences are the single source of truth for every sound in the app.
+  useEffect(() => {
+    saveAudioPreferences(audio);
+    sounds.setEnabled(audio.uiSounds);
+    sounds.setVolume(audio.volume);
+  }, [audio]);
 
   const run = useCallback(async (action: () => Promise<Game>) => {
     setBusy(true);
@@ -82,6 +106,20 @@ export function App() {
     .map(name => name.trim())
     .filter(Boolean);
 
+  function stopHandshake() {
+    stopDialUpEffect();
+    setHandshaking(false);
+  }
+
+  /** Fire-and-forget: a failed or unsupported handshake never blocks the game. */
+  function startHandshake() {
+    if (!shouldPlayIntro(audio)) return;
+    setHandshaking(true);
+    void playDialUpEffect({ volume: audio.volume })
+      .catch(() => undefined)
+      .finally(() => setHandshaking(false));
+  }
+
   async function createGame(event: React.FormEvent) {
     event.preventDefault();
     if (participantNames.length === 0) {
@@ -89,6 +127,7 @@ export function App() {
       errorRef.current?.focus();
       return;
     }
+    startHandshake();
     await run(() =>
       api.create({
         rounds,
@@ -133,290 +172,593 @@ export function App() {
     await run(() => api.reverseScore(game.id, eventId));
   }
 
+  function exitQuiz() {
+    stopHandshake();
+    void playback.current.stop();
+    setGame(undefined);
+    setError(undefined);
+    setDialog(undefined);
+  }
+
   const concealed = !game || (game.status !== 'revealed' && game.status !== 'finished');
   const activeEvents = game?.score_events.filter(event => !event.reversed) ?? [];
   const nameOf = (participantId: string) =>
     game?.participants.find(p => p.id === participantId)?.name ?? 'Unknown team';
 
+  const menus: Menu[] = useMemo(
+    () => [
+      {
+        label: 'File',
+        items: [
+          {
+            label: 'Import playlist…',
+            onSelect: () => setDialog('import'),
+          },
+          {
+            label: 'Connect Spotify account',
+            onSelect: () => {
+              window.location.href = api.loginUrl();
+            },
+          },
+          {
+            label: 'Exit quiz',
+            disabled: !game,
+            onSelect: () => setDialog('exit'),
+          },
+        ],
+      },
+      {
+        label: 'View',
+        items: [
+          {
+            label: 'Side panel',
+            checked: !panelsHidden,
+            onSelect: () => setPanelsHidden(value => !value),
+          },
+          {
+            label: 'Focus mode',
+            checked: focusMode,
+            onSelect: () => setFocusMode(value => !value),
+          },
+        ],
+      },
+      {
+        label: 'Audio',
+        items: [
+          {
+            label: 'Dial-up intro sound',
+            checked: audio.introSound,
+            onSelect: () => setAudio(current => ({ ...current, introSound: !current.introSound })),
+          },
+          {
+            label: 'Interface sounds',
+            checked: audio.uiSounds,
+            onSelect: () => setAudio(current => ({ ...current, uiSounds: !current.uiSounds })),
+          },
+          { label: 'Audio preferences…', onSelect: () => setDialog('audio') },
+        ],
+      },
+      {
+        label: 'Help',
+        items: [
+          { label: 'Keyboard shortcuts', onSelect: () => setDialog('shortcuts') },
+          { label: 'About Spotify Music Quiz', onSelect: () => setDialog('about') },
+        ],
+      },
+    ],
+    [audio.introSound, audio.uiSounds, focusMode, game, panelsHidden],
+  );
+
+  const toolbarActions: ToolbarAction[] = useMemo(() => {
+    const actions: ToolbarAction[] = [];
+    if (game) {
+      actions.push(
+        {
+          id: 'start',
+          label: 'Play',
+          description: 'Start round',
+          icon: 'play',
+          disabled: busy || game.status !== 'ready',
+          onSelect: () => void sendCommand('start'),
+        },
+        {
+          id: 'pause',
+          label: 'Pause',
+          description: game.status === 'paused' ? 'Resume round' : 'Pause round',
+          icon: 'pause',
+          disabled: busy || (game.status !== 'playing' && game.status !== 'paused'),
+          onSelect: () => void sendCommand(game.status === 'paused' ? 'resume' : 'pause'),
+        },
+        {
+          id: 'reveal',
+          label: 'Reveal',
+          description: 'Reveal answer',
+          icon: 'reveal',
+          disabled: busy || (game.status !== 'playing' && game.status !== 'paused'),
+          onSelect: () => void sendCommand('reveal'),
+        },
+        {
+          id: 'next',
+          label: 'Next',
+          description: 'Next round',
+          icon: 'next',
+          disabled: busy || game.status !== 'revealed',
+          onSelect: () => void sendCommand('next'),
+        },
+        {
+          id: 'stop',
+          label: 'Stop',
+          description: 'Exit quiz',
+          icon: 'stop',
+          onSelect: () => setDialog('exit'),
+        },
+      );
+    }
+    actions.push(
+      {
+        id: 'audio',
+        label: 'Audio',
+        description: 'Open audio preferences',
+        icon: 'audio',
+        onSelect: () => setDialog('audio'),
+      },
+      {
+        id: 'help',
+        label: 'Help',
+        description: 'About Spotify Music Quiz',
+        icon: 'help',
+        onSelect: () => setDialog('about'),
+      },
+    );
+    return actions;
+    // sendCommand is stable enough for this menu: it only reads current state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, game]);
+
+  let connection = 'Ready';
+  let connectionIcon: RetroIconName = 'app';
+  if (handshaking) {
+    connection = 'Connecting… negotiating with the music server';
+    connectionIcon = 'loading';
+  } else if (error) {
+    connection = 'Error — see the message in the document';
+    connectionIcon = 'error';
+  } else if (busy) {
+    connection = 'Working…';
+    connectionIcon = 'loading';
+  } else if (game) {
+    connection = `Document: round ${game.round_number} — ${game.status}`;
+  }
+
+  const playlistLocation = game
+    ? `spotify:quiz:${game.id}`
+    : 'spotify:playlist:(none selected — using the demo catalogue)';
+
   return (
     <div className="desktop">
-      <ul className="desktop-icons" aria-hidden="true">
-        {DESKTOP_ICONS.map(label => (
-          <li key={label} className="desktop-icon">
-            <span className="icon-image" />
-            <span className="icon-label">{label}</span>
-          </li>
-        ))}
-      </ul>
+      <div className={focusMode ? 'retro-window is-focus-mode' : 'retro-window'}>
+        <TitleBar
+          title="Spotify Music Quiz — Netscape Navigator"
+          focusMode={focusMode}
+          panelsHidden={panelsHidden}
+          onMinimize={() => setPanelsHidden(value => !value)}
+          onMaximize={() => setFocusMode(value => !value)}
+          onClose={() => setDialog('exit')}
+        />
+        <MenuBar menus={menus} />
+        <Toolbar actions={toolbarActions} />
+        <LocationBar value={playlistLocation} onImport={() => setDialog('import')} />
 
-      <main className="window" aria-labelledby="app-title">
-        <div className="window-titlebar">
-          <h1 className="window-title" id="app-title">
-            Spotify Music Quiz
-          </h1>
-          <span className="window-badge">{busy ? 'Working…' : 'Ready'}</span>
-        </div>
+        <main
+          className={panelsHidden ? 'retro-content' : 'retro-content has-panel'}
+          aria-labelledby="app-title"
+        >
+          <div className="window-body">
+            <p className="notice" role="note">
+              {PLAYBACK_UNAVAILABLE_NOTICE}
+            </p>
 
-        <div className="window-body">
-          <p className="notice" role="note">
-            {PLAYBACK_UNAVAILABLE_NOTICE}
-          </p>
+            {config && config.problems.length > 0 && (
+              <section className="notice notice-warning" aria-labelledby="config-problems">
+                <h2 id="config-problems">Configuration needs attention</h2>
+                <ul>
+                  {config.problems.map(problem => (
+                    <li key={problem}>{problem}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
-          {config && config.problems.length > 0 && (
-            <section className="notice notice-warning" aria-labelledby="config-problems">
-              <h2 id="config-problems">Configuration needs attention</h2>
-              <ul>
-                {config.problems.map(problem => (
-                  <li key={problem}>{problem}</li>
-                ))}
-              </ul>
-            </section>
-          )}
+            <div
+              className={error ? 'error' : 'error error-empty'}
+              role="alert"
+              tabIndex={-1}
+              ref={errorRef}
+            >
+              {error}
+            </div>
 
-          <div
-            className={error ? 'error' : 'error error-empty'}
-            role="alert"
-            tabIndex={-1}
-            ref={errorRef}
-          >
-            {error}
-          </div>
-
-          {!game && (
-            <form className="card" onSubmit={createGame} aria-labelledby="setup-heading">
-              <h2 id="setup-heading">Set up the quiz</h2>
-
-              <div className="field">
-                <label htmlFor="teams">Teams (comma separated)</label>
-                <input
-                  id="teams"
-                  name="teams"
-                  type="text"
-                  value={teams}
-                  onChange={event => setTeams(event.target.value)}
-                  aria-describedby="teams-hint"
-                  required
-                />
-                <p id="teams-hint" className="hint">
-                  For example: Team A, Team B
-                </p>
-              </div>
-
-              <div className="field">
-                <label htmlFor="rounds">Number of rounds</label>
-                <input
-                  id="rounds"
-                  name="rounds"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={rounds}
-                  onChange={event => setRounds(Number(event.target.value))}
-                />
-              </div>
-
-              <div className="field">
-                <label htmlFor="excerpt">Excerpt length in seconds</label>
-                <input
-                  id="excerpt"
-                  name="excerpt"
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={excerptSeconds}
-                  onChange={event => setExcerptSeconds(Number(event.target.value))}
-                />
-              </div>
-
-              <fieldset className="field">
-                <legend>Overall time limit</legend>
-                {TIME_LIMIT_OPTIONS.map(option => (
-                  <div className="radio" key={option.value}>
-                    <input
-                      type="radio"
-                      id={`limit-${option.value}`}
-                      name="timeLimit"
-                      value={option.value}
-                      checked={timeLimit === option.value}
-                      onChange={() => setTimeLimit(option.value)}
-                    />
-                    <label htmlFor={`limit-${option.value}`}>{option.label}</label>
-                  </div>
-                ))}
-              </fieldset>
-
-              <div className="actions">
-                <button type="submit" className="primary" disabled={busy}>
-                  Start quiz
+            {handshaking && (
+              <p className="notice">
+                <RetroIcon name="loading" /> Dialling the music server…{' '}
+                <button type="button" onClick={stopHandshake}>
+                  Skip sound
                 </button>
-                <a className="button-link" href={api.loginUrl()}>
-                  Connect Spotify account
-                </a>
-              </div>
-            </form>
-          )}
-
-          {game && (
-            <section className="game" aria-labelledby="round-heading">
-              <h2 id="round-heading">
-                Round {game.round_number} of {game.rounds}
-              </h2>
-              <p className="status" aria-live="polite">
-                Status: {game.status}
               </p>
+            )}
 
-              <div className="card stage">
-                {concealed ? (
-                  <>
-                    <p className="mystery" aria-hidden="true">
-                      ?
-                    </p>
-                    <p>The track is hidden until you reveal it.</p>
-                    <p className="timer">
-                      <span className="visually-hidden">Time remaining in this excerpt: </span>
-                      <output aria-live="off">{formatClock(remainingMs)}</output>
-                    </p>
-                    {excerptElapsed && (
-                      <p className="timer-elapsed" aria-live="polite">
-                        The excerpt time is up. Reveal the answer when you are ready.
+            {!game && (
+              <form className="card" onSubmit={createGame} aria-labelledby="setup-heading">
+                <h2 id="setup-heading">Set up the quiz</h2>
+
+                <div className="field">
+                  <label htmlFor="teams">Teams (comma separated)</label>
+                  <input
+                    id="teams"
+                    name="teams"
+                    type="text"
+                    value={teams}
+                    onChange={event => setTeams(event.target.value)}
+                    aria-describedby="teams-hint"
+                    required
+                  />
+                  <p id="teams-hint" className="hint">
+                    For example: Team A, Team B
+                  </p>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="rounds">Number of rounds</label>
+                  <input
+                    id="rounds"
+                    name="rounds"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={rounds}
+                    onChange={event => setRounds(Number(event.target.value))}
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="excerpt">Excerpt length in seconds</label>
+                  <input
+                    id="excerpt"
+                    name="excerpt"
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={excerptSeconds}
+                    onChange={event => setExcerptSeconds(Number(event.target.value))}
+                  />
+                </div>
+
+                <fieldset className="field">
+                  <legend>Overall time limit</legend>
+                  {TIME_LIMIT_OPTIONS.map(option => (
+                    <div className="radio" key={option.value}>
+                      <input
+                        type="radio"
+                        id={`limit-${option.value}`}
+                        name="timeLimit"
+                        value={option.value}
+                        checked={timeLimit === option.value}
+                        onChange={() => setTimeLimit(option.value)}
+                      />
+                      <label htmlFor={`limit-${option.value}`}>{option.label}</label>
+                    </div>
+                  ))}
+                </fieldset>
+
+                <div className="actions">
+                  <button type="submit" className="primary" disabled={busy}>
+                    Start quiz
+                  </button>
+                  <a className="button-link" href={api.loginUrl()}>
+                    Connect Spotify account
+                  </a>
+                </div>
+              </form>
+            )}
+
+            {game && (
+              <section className="game" aria-labelledby="round-heading">
+                <h2 id="round-heading">
+                  Round {game.round_number} of {game.rounds}
+                </h2>
+                <p className="status" aria-live="polite">
+                  Status: {game.status}
+                </p>
+
+                <div className="card stage">
+                  {concealed ? (
+                    <>
+                      <p className="mystery" aria-hidden="true">
+                        ?
                       </p>
-                    )}
-                  </>
-                ) : game.answer ? (
-                  <div aria-live="polite">
-                    <h3>{game.answer.title}</h3>
-                    <p>Artist: {game.answer.artists.join(', ')}</p>
-                    <p>Album: {game.answer.album}</p>
-                  </div>
-                ) : (
-                  <div aria-live="polite">
-                    <h3>Game complete</h3>
-                    <p>Thanks for playing.</p>
-                  </div>
+                      <p>The track is hidden until you reveal it.</p>
+                      <p className="timer">
+                        <span className="visually-hidden">Time remaining in this excerpt: </span>
+                        <output aria-live="off">{formatClock(remainingMs)}</output>
+                      </p>
+                      {excerptElapsed && (
+                        <p className="timer-elapsed" aria-live="polite">
+                          The excerpt time is up. Reveal the answer when you are ready.
+                        </p>
+                      )}
+                    </>
+                  ) : game.answer ? (
+                    <div aria-live="polite">
+                      <h3>{game.answer.title}</h3>
+                      <p>Artist: {game.answer.artists.join(', ')}</p>
+                      <p>Album: {game.answer.album}</p>
+                    </div>
+                  ) : (
+                    <div aria-live="polite">
+                      <h3>Game complete</h3>
+                      <p>Thanks for playing.</p>
+                    </div>
+                  )}
+
+                </div>
+
+                <table className="scoreboard">
+                  <caption>Scoreboard</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Team</th>
+                      <th scope="col">Points</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {game.participants.map(participant => (
+                      <tr key={participant.id}>
+                        <th scope="row">{participant.name}</th>
+                        <td>{participant.score}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {game.status === 'revealed' && (
+                  <section className="card" aria-labelledby="scoring-heading">
+                    <h3 id="scoring-heading">Award points</h3>
+                    <ul className="scoring-list">
+                      {game.participants.map(participant => (
+                        <li key={participant.id}>
+                          <span className="scoring-team">{participant.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => void award(participant.id, 1, 'title')}
+                            disabled={busy}
+                          >
+                            <span aria-hidden="true">+1</span>
+                            <span className="visually-hidden">
+                              Award one point to {participant.name} for the title
+                            </span>
+                            <span aria-hidden="true"> title</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void award(participant.id, 1, 'artist')}
+                            disabled={busy}
+                          >
+                            <span aria-hidden="true">+1</span>
+                            <span className="visually-hidden">
+                              Award one point to {participant.name} for the artist
+                            </span>
+                            <span aria-hidden="true"> artist</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 )}
 
-                <div className="controls">
-                  {game.status === 'ready' && (
-                    <button type="button" onClick={() => void sendCommand('start')} disabled={busy}>
-                      Start round
-                    </button>
-                  )}
-                  {game.status === 'playing' && (
-                    <button type="button" onClick={() => void sendCommand('pause')} disabled={busy}>
-                      Pause round
-                    </button>
-                  )}
-                  {game.status === 'paused' && (
-                    <button
-                      type="button"
-                      onClick={() => void sendCommand('resume')}
-                      disabled={busy}
-                    >
-                      Resume round
-                    </button>
-                  )}
-                  {(game.status === 'playing' || game.status === 'paused') && (
-                    <button
-                      type="button"
-                      onClick={() => void sendCommand('reveal')}
-                      disabled={busy}
-                    >
-                      Reveal answer
-                    </button>
-                  )}
-                  {game.status === 'revealed' && (
-                    <button type="button" onClick={() => void sendCommand('next')} disabled={busy}>
-                      Next round
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <table className="scoreboard">
-                <caption>Scoreboard</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Team</th>
-                    <th scope="col">Points</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {game.participants.map(participant => (
-                    <tr key={participant.id}>
-                      <th scope="row">{participant.name}</th>
-                      <td>{participant.score}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {game.status === 'revealed' && (
-                <section className="card" aria-labelledby="scoring-heading">
-                  <h3 id="scoring-heading">Award points</h3>
-                  <ul className="scoring-list">
-                    {game.participants.map(participant => (
-                      <li key={participant.id}>
-                        <span className="scoring-team">{participant.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => void award(participant.id, 1, 'title')}
-                          disabled={busy}
-                        >
-                          <span aria-hidden="true">+1</span>
-                          <span className="visually-hidden">
-                            Award one point to {participant.name} for the title
+                {activeEvents.length > 0 && (
+                  <section className="card" aria-labelledby="history-heading">
+                    <h3 id="history-heading">Awarded this game</h3>
+                    <ul className="score-history">
+                      {activeEvents.map(event => (
+                        <li key={event.id}>
+                          <span>
+                            {nameOf(event.participant_id)}: {event.points} for {event.reason}
                           </span>
-                          <span aria-hidden="true"> title</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void award(participant.id, 1, 'artist')}
-                          disabled={busy}
-                        >
-                          <span aria-hidden="true">+1</span>
-                          <span className="visually-hidden">
-                            Award one point to {participant.name} for the artist
-                          </span>
-                          <span aria-hidden="true"> artist</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
+                          <button type="button" onClick={() => void undo(event.id)} disabled={busy}>
+                            <span aria-hidden="true">Undo</span>
+                            <span className="visually-hidden">
+                              Undo {event.points} points for {nameOf(event.participant_id)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </section>
+            )}
+          </div>
 
-              {activeEvents.length > 0 && (
-                <section className="card" aria-labelledby="history-heading">
-                  <h3 id="history-heading">Awarded this game</h3>
-                  <ul className="score-history">
-                    {activeEvents.map(event => (
-                      <li key={event.id}>
-                        <span>
-                          {nameOf(event.participant_id)}: {event.points} for {event.reason}
-                        </span>
-                        <button type="button" onClick={() => void undo(event.id)} disabled={busy}>
-                          <span aria-hidden="true">Undo</span>
-                          <span className="visually-hidden">
-                            Undo {event.points} points for {nameOf(event.participant_id)}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </section>
+          {!panelsHidden && (
+            <aside className="retro-panel" aria-labelledby="panel-heading">
+              <h2 id="panel-heading">Quiz master notes</h2>
+              <p className="hint">
+                Answers stay concealed on the server until you reveal them, so this window can be
+                shown on a shared screen.
+              </p>
+              <h3>Audio</h3>
+              <p className="hint">
+                Dial-up intro: {audio.introSound ? 'on' : 'off'} · Interface sounds:{' '}
+                {audio.uiSounds ? 'on' : 'off'} · Volume: {Math.round(audio.volume * 100)}%
+              </p>
+              <button type="button" onClick={() => setDialog('audio')}>
+                Audio preferences…
+              </button>
+            </aside>
           )}
-        </div>
-      </main>
+        </main>
 
-      <div className="taskbar" aria-hidden="true">
-        <span className="start-button">Start</span>
-        <span className="taskbar-item">Spotify Music Quiz</span>
-        <span className="clock">
-          {clock.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <StatusBar
+          connection={connection}
+          connectionIcon={connectionIcon}
+          round={game ? `Round ${game.round_number}/${game.rounds}` : 'No document loaded'}
+          players={game ? `${game.participants.length} teams` : undefined}
+          clock={clock.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+        />
       </div>
+
+      <RetroDialog
+        title="Audio preferences"
+        icon="audio"
+        open={dialog === 'audio'}
+        onClose={() => setDialog(undefined)}
+      >
+        <div className="field">
+          <div className="radio">
+            <input
+              type="checkbox"
+              id="pref-intro"
+              checked={audio.introSound}
+              onChange={event => setAudio({ ...audio, introSound: event.target.checked })}
+            />
+            <label htmlFor="pref-intro">Play the dial-up intro when a quiz starts</label>
+          </div>
+          <div className="radio">
+            <input
+              type="checkbox"
+              id="pref-skip"
+              checked={audio.skipIntro}
+              onChange={event => setAudio({ ...audio, skipIntro: event.target.checked })}
+            />
+            <label htmlFor="pref-skip">Skip the intro this session</label>
+          </div>
+          <div className="radio">
+            <input
+              type="checkbox"
+              id="pref-ui"
+              checked={audio.uiSounds}
+              onChange={event => setAudio({ ...audio, uiSounds: event.target.checked })}
+            />
+            <label htmlFor="pref-ui">Play short interface sounds</label>
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="pref-volume">Volume: {Math.round(audio.volume * 100)}%</label>
+          <input
+            className="retro-range"
+            id="pref-volume"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(audio.volume * 100)}
+            onChange={event => setAudio({ ...audio, volume: Number(event.target.value) / 100 })}
+          />
+          <p className="hint">
+            Sounds are synthesised in the browser, so nothing is downloaded and no recording is
+            bundled with the app.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void playDialUpEffect({ volume: audio.volume }).catch(() => undefined)}
+        >
+          Preview intro sound
+        </button>
+      </RetroDialog>
+
+      <RetroDialog
+        title="Keyboard shortcuts"
+        icon="help"
+        open={dialog === 'shortcuts'}
+        onClose={() => setDialog(undefined)}
+      >
+        <table className="retro-kbd-table">
+          <caption className="visually-hidden">Keyboard shortcuts for the retro interface</caption>
+          <thead>
+            <tr>
+              <th scope="col">Key</th>
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Tab / Shift + Tab</td>
+              <td>Move between controls</td>
+            </tr>
+            <tr>
+              <td>Left / Right</td>
+              <td>Move between menu titles</td>
+            </tr>
+            <tr>
+              <td>Enter or Down</td>
+              <td>Open the focused menu</td>
+            </tr>
+            <tr>
+              <td>Up / Down / Home / End</td>
+              <td>Move inside an open menu</td>
+            </tr>
+            <tr>
+              <td>Escape</td>
+              <td>Close the menu or dialog and return focus</td>
+            </tr>
+          </tbody>
+        </table>
+      </RetroDialog>
+
+      <RetroDialog
+        title="About Spotify Music Quiz"
+        icon="app"
+        open={dialog === 'about'}
+        onClose={() => setDialog(undefined)}
+      >
+        <p>
+          A music quiz for a shared screen, wearing a 1996 interface. The Windows 95 and Netscape
+          Navigator look is an homage drawn from scratch: no Microsoft, Netscape, or Spotify assets
+          are bundled.
+        </p>
+        <p className="hint">
+          Playback control requires a Spotify Premium account and the Web Playback SDK, which is not
+          wired up yet.
+        </p>
+      </RetroDialog>
+
+      <RetroDialog
+        title="Import playlist"
+        icon="import"
+        open={dialog === 'import'}
+        onClose={() => setDialog(undefined)}
+      >
+        <p>
+          Playlist import is not available yet. The quiz currently draws its rounds from the demo
+          catalogue on the server.
+        </p>
+        <p className="hint">
+          Connect a Spotify account from the File menu to prepare for playlist support.
+        </p>
+      </RetroDialog>
+
+      <RetroDialog
+        title="Exit quiz"
+        icon="error"
+        open={dialog === 'exit'}
+        onClose={() => setDialog(undefined)}
+        footer={
+          <>
+            <button type="button" onClick={() => setDialog(undefined)}>
+              Cancel
+            </button>
+            <button type="button" className="primary" onClick={exitQuiz}>
+              Exit quiz
+            </button>
+          </>
+        }
+      >
+        <p>
+          Exit the current quiz and return to the setup screen? Scores for this game are kept on the
+          server.
+        </p>
+      </RetroDialog>
     </div>
   );
 }

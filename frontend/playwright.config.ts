@@ -32,8 +32,18 @@ export default defineConfig({
     {
       name: 'chromium',
       // 'chromium' channel runs the full browser rather than the headless
-      // shell, which some CI images lack shared libraries for.
-      use: { ...devices['Desktop Chrome'], channel: 'chromium' },
+      // shell, which some CI images lack shared libraries for. Set
+      // E2E_CHANNEL=default on a machine that has only the headless shell.
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(process.env.E2E_CHANNEL === 'default'
+          ? {}
+          : { channel: process.env.E2E_CHANNEL ?? 'chromium' }),
+        // Escape hatch for sandboxes that ship their own Chromium build.
+        ...(process.env.E2E_CHROMIUM_PATH
+          ? { launchOptions: { executablePath: process.env.E2E_CHROMIUM_PATH } }
+          : {}),
+      },
     },
   ],
   webServer: [
