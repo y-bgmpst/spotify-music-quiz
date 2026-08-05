@@ -53,6 +53,18 @@ npm --prefix frontend run dev
 
 ## Troubleshooting
 
+### "INVALID_CLIENT: Invalid client id"
+Spotify rejects the Client ID. Check, in this order:
+- The value in `.env` is the **Client ID** from the app dashboard - not the Client Secret,
+  not the app URL, not the app name.
+- It is exactly 32 lowercase hexadecimal characters, with no quotes, spaces or trailing
+  comment on the `SPOTIFY_CLIENT_ID=` line.
+- The Spotify app still exists and is not deleted or in a different account.
+
+The backend now validates this locally: run the server and open
+`http://127.0.0.1:8000/api/v1/config`. If the format is wrong, `problems` names the exact
+issue and sign-in stays disabled instead of sending you to Spotify's error page.
+
 ### "Invalid redirect URI"
 - Make sure you used `http://127.0.0.1:8000/api/v1/auth/callback` (not localhost)
 - Check it's saved in Spotify Dashboard → Settings → Redirect URIs

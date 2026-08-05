@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 def api(tmp_path, monkeypatch) -> Iterator[tuple[TestClient, object]]:
     """Reload the app against an isolated database and deterministic config."""
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("SPOTIFY_CLIENT_ID", "0123456789abcdef0123456789abcdef")
     monkeypatch.setenv("FRONTEND_ORIGIN", "http://127.0.0.1:5173")
     monkeypatch.setenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback")
     monkeypatch.setenv("ADDITIONAL_ALLOWED_ORIGINS", "")
