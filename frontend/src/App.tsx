@@ -6,10 +6,22 @@ import {
   type Game,
   type RoundCommand,
 } from './api/client';
-import { PLAYBACK_UNAVAILABLE_NOTICE, StubPlayback } from './spotify/player';
+import {
+  PLAYBACK_READY_NOTICE,
+  PLAYBACK_UNAVAILABLE_NOTICE,
+  StubPlayback,
+  type PlaybackPort,
+} from './spotify/player';
+import { PlaybackError, SpotifyWebPlayback } from './spotify/webPlayback';
 import { formatClock, useCountdown } from './useCountdown';
 import { sounds } from './sounds';
 import { TitleBar } from './retro/TitleBar';
+import {
+  DesktopIcons,
+  Taskbar,
+  type DesktopShortcut,
+  type StartMenuItem,
+} from './retro/Desktop';
 import { MenuBar, type Menu } from './retro/MenuBar';
 import { Toolbar, type ToolbarAction } from './retro/Toolbar';
 import { LocationBar } from './retro/LocationBar';
@@ -30,7 +42,20 @@ const TIME_LIMIT_OPTIONS = [
   { value: 0, label: 'No limit' },
 ] as const;
 
+const WINDOW_TITLE = 'Spotify Music Quiz — Netscape Navigator';
+
 type DialogName = 'audio' | 'shortcuts' | 'about' | 'import' | 'exit';
+
+/** Messages for the `auth_error` codes the backend redirects with. */
+const AUTH_ERRORS: Record<string, string> = {
+  denied: 'Spotify sign-in was cancelled.',
+  invalid_state: 'That sign-in link expired. Please connect Spotify again.',
+  missing_code:
+    'Spotify did not return an authorization code. Please try again.',
+  not_configured: 'Spotify is not configured on this server.',
+  exchange_failed: 'Spotify refused the sign-in. Please try again.',
+  unexpected: 'Spotify sign-in failed unexpectedly. Please try again.',
+};
 
 export function App() {
   const [game, setGame] = useState<Game | undefined>();
@@ -44,15 +69,28 @@ export function App() {
   const [clock, setClock] = useState(() => new Date());
 
   const [dialog, setDialog] = useState<DialogName | undefined>();
-  const [audio, setAudio] = useState<AudioPreferences>(() => loadAudioPreferences());
+  const [audio, setAudio] = useState<AudioPreferences>(() =>
+    loadAudioPreferences(),
+  );
   const [handshaking, setHandshaking] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [panelsHidden, setPanelsHidden] = useState(false);
+  const [minimized, setMinimized] = useState(false);
 
-  const playback = useRef(new StubPlayback());
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | undefined>();
+
+  const playback = useRef<PlaybackPort>(new StubPlayback());
   const errorRef = useRef<HTMLDivElement>(null);
+  const latestGame = useRef<Game | undefined>(undefined);
 
-  const remainingMs = useCountdown(game?.excerpt_remaining_ms ?? 0, game?.status === 'playing');
+  const audioVolumeRef = useRef(audio.volume);
+  audioVolumeRef.current = audio.volume;
+
+  const remainingMs = useCountdown(
+    game?.excerpt_remaining_ms ?? 0,
+    game?.status === 'playing',
+  );
   const excerptElapsed = game?.status === 'playing' && remainingMs <= 0;
 
   useEffect(() => {
@@ -69,10 +107,48 @@ export function App() {
     return () => controller.abort();
   }, []);
 
+  // Report an OAuth round trip once, then clean the query string so a reload
+  // does not repeat the message.
   useEffect(() => {
-    const player = playback.current;
+    const params = new URLSearchParams(window.location.search);
+    const failure = params.get('auth_error');
+    if (params.get('authenticated') === '1') {
+      setAuthNotice('Spotify account connected.');
+    } else if (failure) {
+      setAuthNotice(
+        AUTH_ERRORS[failure] ??
+          'Spotify sign-in did not complete. Please try again.',
+      );
+    }
+    if (failure || params.get('authenticated')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .authStatus({ signal: controller.signal })
+      .then((status) => setAuthenticated(status.authenticated))
+      .catch(() => setAuthenticated(false));
+    return () => controller.abort();
+  }, [authNotice]);
+
+  // The stub keeps the game usable offline; a connected account swaps in the
+  // real Web Playback SDK so rounds actually make sound.
+  useEffect(() => {
+    void playback.current.stop();
+    playback.current = authenticated
+      ? new SpotifyWebPlayback({
+          getToken: async () => (await api.accessToken()).access_token,
+          volume: audioVolumeRef.current,
+        })
+      : new StubPlayback();
+  }, [authenticated]);
+
+  useEffect(() => {
     return () => {
-      void player.stop();
+      void playback.current.stop();
       stopDialUpEffect();
     };
   }, []);
@@ -88,7 +164,9 @@ export function App() {
     setBusy(true);
     setError(undefined);
     try {
-      setGame(await action());
+      const next = await action();
+      latestGame.current = next;
+      setGame(next);
       return true;
     } catch (caught) {
       setError(toDisplayMessage(caught));
@@ -103,7 +181,7 @@ export function App() {
 
   const participantNames = teams
     .split(',')
-    .map(name => name.trim())
+    .map((name) => name.trim())
     .filter(Boolean);
 
   function stopHandshake() {
@@ -143,26 +221,45 @@ export function App() {
     if (!game) return;
     const ok = await run(() => api.command(game.id, command));
     if (!ok) return;
-    if (command === 'start') {
-      sounds.start();
-      await playback.current.start({ uri: 'unknown', position_ms: 0 });
-    }
-    if (command === 'pause') await playback.current.pause();
-    if (command === 'resume') await playback.current.resume();
-    if (command === 'reveal') {
-      sounds.reveal();
-      await playback.current.stop();
-    }
-    if (command === 'next') {
-      sounds.next();
-      await playback.current.stop();
+    try {
+      if (command === 'start') {
+        sounds.start();
+        const target = latestGame.current?.playback;
+        await playback.current.start({
+          uri: target?.uri ?? 'unknown',
+          position_ms: target?.position_ms ?? 0,
+        });
+      }
+      if (command === 'pause') await playback.current.pause();
+      if (command === 'resume') await playback.current.resume();
+      if (command === 'reveal') {
+        sounds.reveal();
+        await playback.current.stop();
+      }
+      if (command === 'next') {
+        sounds.next();
+        await playback.current.stop();
+      }
+    } catch (caught) {
+      // Playback problems never abort the round: the host can still keep time
+      // and score while playing the track by other means.
+      setError(
+        caught instanceof PlaybackError
+          ? caught.message
+          : 'Spotify playback failed. The round continues without audio.',
+      );
+      window.requestAnimationFrame(() => errorRef.current?.focus());
     }
   }
 
   async function award(participantId: string, points: number, reason: string) {
     if (!game) return;
     const ok = await run(() =>
-      api.awardScore(game.id, { participant_id: participantId, points, reason }),
+      api.awardScore(game.id, {
+        participant_id: participantId,
+        points,
+        reason,
+      }),
     );
     if (ok) sounds.score();
   }
@@ -180,10 +277,13 @@ export function App() {
     setDialog(undefined);
   }
 
-  const concealed = !game || (game.status !== 'revealed' && game.status !== 'finished');
-  const activeEvents = game?.score_events.filter(event => !event.reversed) ?? [];
+  const concealed =
+    !game || (game.status !== 'revealed' && game.status !== 'finished');
+  const activeEvents =
+    game?.score_events.filter((event) => !event.reversed) ?? [];
   const nameOf = (participantId: string) =>
-    game?.participants.find(p => p.id === participantId)?.name ?? 'Unknown team';
+    game?.participants.find((p) => p.id === participantId)?.name ??
+    'Unknown team';
 
   const menus: Menu[] = useMemo(
     () => [
@@ -213,12 +313,12 @@ export function App() {
           {
             label: 'Side panel',
             checked: !panelsHidden,
-            onSelect: () => setPanelsHidden(value => !value),
+            onSelect: () => setPanelsHidden((value) => !value),
           },
           {
             label: 'Focus mode',
             checked: focusMode,
-            onSelect: () => setFocusMode(value => !value),
+            onSelect: () => setFocusMode((value) => !value),
           },
         ],
       },
@@ -228,12 +328,20 @@ export function App() {
           {
             label: 'Dial-up intro sound',
             checked: audio.introSound,
-            onSelect: () => setAudio(current => ({ ...current, introSound: !current.introSound })),
+            onSelect: () =>
+              setAudio((current) => ({
+                ...current,
+                introSound: !current.introSound,
+              })),
           },
           {
             label: 'Interface sounds',
             checked: audio.uiSounds,
-            onSelect: () => setAudio(current => ({ ...current, uiSounds: !current.uiSounds })),
+            onSelect: () =>
+              setAudio((current) => ({
+                ...current,
+                uiSounds: !current.uiSounds,
+              })),
           },
           { label: 'Audio preferences…', onSelect: () => setDialog('audio') },
         ],
@@ -241,8 +349,14 @@ export function App() {
       {
         label: 'Help',
         items: [
-          { label: 'Keyboard shortcuts', onSelect: () => setDialog('shortcuts') },
-          { label: 'About Spotify Music Quiz', onSelect: () => setDialog('about') },
+          {
+            label: 'Keyboard shortcuts',
+            onSelect: () => setDialog('shortcuts'),
+          },
+          {
+            label: 'About Spotify Music Quiz',
+            onSelect: () => setDialog('about'),
+          },
         ],
       },
     ],
@@ -264,17 +378,21 @@ export function App() {
         {
           id: 'pause',
           label: 'Pause',
-          description: game.status === 'paused' ? 'Resume round' : 'Pause round',
+          description:
+            game.status === 'paused' ? 'Resume round' : 'Pause round',
           icon: 'pause',
-          disabled: busy || (game.status !== 'playing' && game.status !== 'paused'),
-          onSelect: () => void sendCommand(game.status === 'paused' ? 'resume' : 'pause'),
+          disabled:
+            busy || (game.status !== 'playing' && game.status !== 'paused'),
+          onSelect: () =>
+            void sendCommand(game.status === 'paused' ? 'resume' : 'pause'),
         },
         {
           id: 'reveal',
           label: 'Reveal',
           description: 'Reveal answer',
           icon: 'reveal',
-          disabled: busy || (game.status !== 'playing' && game.status !== 'paused'),
+          disabled:
+            busy || (game.status !== 'playing' && game.status !== 'paused'),
           onSelect: () => void sendCommand('reveal'),
         },
         {
@@ -330,24 +448,118 @@ export function App() {
     connection = `Document: round ${game.round_number} — ${game.status}`;
   }
 
+  const shortcuts: DesktopShortcut[] = useMemo(
+    () => [
+      {
+        id: 'quiz',
+        label: 'Music Quiz',
+        icon: 'app',
+        onOpen: () => setMinimized(false),
+      },
+      {
+        id: 'spotify',
+        label: 'Connect Spotify',
+        icon: 'spotify',
+        onOpen: () => {
+          window.location.href = api.loginUrl();
+        },
+      },
+      {
+        id: 'audio',
+        label: 'Audio',
+        icon: 'audio',
+        onOpen: () => setDialog('audio'),
+      },
+      {
+        id: 'help',
+        label: 'Help',
+        icon: 'help',
+        onOpen: () => setDialog('shortcuts'),
+      },
+    ],
+    [],
+  );
+
+  const startItems: StartMenuItem[] = useMemo(
+    () => [
+      {
+        label: minimized ? 'Restore Music Quiz' : 'Music Quiz',
+        icon: 'app',
+        onSelect: () => setMinimized(false),
+      },
+      {
+        label: 'Import playlist…',
+        icon: 'import',
+        onSelect: () => setDialog('import'),
+      },
+      {
+        label: 'Connect Spotify account',
+        icon: 'spotify',
+        onSelect: () => {
+          window.location.href = api.loginUrl();
+        },
+      },
+      {
+        label: 'Audio preferences…',
+        icon: 'audio',
+        onSelect: () => setDialog('audio'),
+      },
+      {
+        label: 'Keyboard shortcuts',
+        icon: 'help',
+        onSelect: () => setDialog('shortcuts'),
+      },
+      {
+        label: 'About Spotify Music Quiz',
+        icon: 'app',
+        onSelect: () => setDialog('about'),
+      },
+      {
+        label: 'Shut down…',
+        icon: 'error',
+        disabled: !game,
+        onSelect: () => setDialog('exit'),
+      },
+    ],
+    [game, minimized],
+  );
+
+  const clockLabel = clock.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
   const playlistLocation = game
     ? `spotify:quiz:${game.id}`
     : 'spotify:playlist:(none selected — using the demo catalogue)';
 
   return (
     <div className="desktop">
-      <div className={focusMode ? 'retro-window is-focus-mode' : 'retro-window'}>
+      <DesktopIcons shortcuts={shortcuts} />
+
+      <div
+        className={[
+          'retro-window',
+          focusMode ? 'is-focus-mode' : '',
+          minimized ? 'is-minimized' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <TitleBar
-          title="Spotify Music Quiz — Netscape Navigator"
+          title={WINDOW_TITLE}
           focusMode={focusMode}
-          panelsHidden={panelsHidden}
-          onMinimize={() => setPanelsHidden(value => !value)}
-          onMaximize={() => setFocusMode(value => !value)}
+          minimized={minimized}
+          onMinimize={() => setMinimized(true)}
+          onMaximize={() => setFocusMode((value) => !value)}
           onClose={() => setDialog('exit')}
         />
         <MenuBar menus={menus} />
         <Toolbar actions={toolbarActions} />
-        <LocationBar value={playlistLocation} onImport={() => setDialog('import')} />
+        <LocationBar
+          value={playlistLocation}
+          onImport={() => setDialog('import')}
+        />
 
         <main
           className={panelsHidden ? 'retro-content' : 'retro-content has-panel'}
@@ -355,14 +567,25 @@ export function App() {
         >
           <div className="window-body">
             <p className="notice" role="note">
-              {PLAYBACK_UNAVAILABLE_NOTICE}
+              {authenticated
+                ? PLAYBACK_READY_NOTICE
+                : PLAYBACK_UNAVAILABLE_NOTICE}
             </p>
 
+            {authNotice && (
+              <p className="notice" role="status">
+                {authNotice}
+              </p>
+            )}
+
             {config && config.problems.length > 0 && (
-              <section className="notice notice-warning" aria-labelledby="config-problems">
+              <section
+                className="notice notice-warning"
+                aria-labelledby="config-problems"
+              >
                 <h2 id="config-problems">Configuration needs attention</h2>
                 <ul>
-                  {config.problems.map(problem => (
+                  {config.problems.map((problem) => (
                     <li key={problem}>{problem}</li>
                   ))}
                 </ul>
@@ -388,7 +611,11 @@ export function App() {
             )}
 
             {!game && (
-              <form className="card" onSubmit={createGame} aria-labelledby="setup-heading">
+              <form
+                className="card"
+                onSubmit={createGame}
+                aria-labelledby="setup-heading"
+              >
                 <h2 id="setup-heading">Set up the quiz</h2>
 
                 <div className="field">
@@ -398,7 +625,7 @@ export function App() {
                     name="teams"
                     type="text"
                     value={teams}
-                    onChange={event => setTeams(event.target.value)}
+                    onChange={(event) => setTeams(event.target.value)}
                     aria-describedby="teams-hint"
                     required
                   />
@@ -416,7 +643,7 @@ export function App() {
                     min={1}
                     max={100}
                     value={rounds}
-                    onChange={event => setRounds(Number(event.target.value))}
+                    onChange={(event) => setRounds(Number(event.target.value))}
                   />
                 </div>
 
@@ -429,13 +656,15 @@ export function App() {
                     min={1}
                     max={60}
                     value={excerptSeconds}
-                    onChange={event => setExcerptSeconds(Number(event.target.value))}
+                    onChange={(event) =>
+                      setExcerptSeconds(Number(event.target.value))
+                    }
                   />
                 </div>
 
                 <fieldset className="field">
                   <legend>Overall time limit</legend>
-                  {TIME_LIMIT_OPTIONS.map(option => (
+                  {TIME_LIMIT_OPTIONS.map((option) => (
                     <div className="radio" key={option.value}>
                       <input
                         type="radio"
@@ -445,7 +674,9 @@ export function App() {
                         checked={timeLimit === option.value}
                         onChange={() => setTimeLimit(option.value)}
                       />
-                      <label htmlFor={`limit-${option.value}`}>{option.label}</label>
+                      <label htmlFor={`limit-${option.value}`}>
+                        {option.label}
+                      </label>
                     </div>
                   ))}
                 </fieldset>
@@ -478,12 +709,17 @@ export function App() {
                       </p>
                       <p>The track is hidden until you reveal it.</p>
                       <p className="timer">
-                        <span className="visually-hidden">Time remaining in this excerpt: </span>
-                        <output aria-live="off">{formatClock(remainingMs)}</output>
+                        <span className="visually-hidden">
+                          Time remaining in this excerpt:{' '}
+                        </span>
+                        <output aria-live="off">
+                          {formatClock(remainingMs)}
+                        </output>
                       </p>
                       {excerptElapsed && (
                         <p className="timer-elapsed" aria-live="polite">
-                          The excerpt time is up. Reveal the answer when you are ready.
+                          The excerpt time is up. Reveal the answer when you are
+                          ready.
                         </p>
                       )}
                     </>
@@ -499,7 +735,6 @@ export function App() {
                       <p>Thanks for playing.</p>
                     </div>
                   )}
-
                 </div>
 
                 <table className="scoreboard">
@@ -511,7 +746,7 @@ export function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {game.participants.map(participant => (
+                    {game.participants.map((participant) => (
                       <tr key={participant.id}>
                         <th scope="row">{participant.name}</th>
                         <td>{participant.score}</td>
@@ -524,28 +759,36 @@ export function App() {
                   <section className="card" aria-labelledby="scoring-heading">
                     <h3 id="scoring-heading">Award points</h3>
                     <ul className="scoring-list">
-                      {game.participants.map(participant => (
+                      {game.participants.map((participant) => (
                         <li key={participant.id}>
-                          <span className="scoring-team">{participant.name}</span>
+                          <span className="scoring-team">
+                            {participant.name}
+                          </span>
                           <button
                             type="button"
-                            onClick={() => void award(participant.id, 1, 'title')}
+                            onClick={() =>
+                              void award(participant.id, 1, 'title')
+                            }
                             disabled={busy}
                           >
                             <span aria-hidden="true">+1</span>
                             <span className="visually-hidden">
-                              Award one point to {participant.name} for the title
+                              Award one point to {participant.name} for the
+                              title
                             </span>
                             <span aria-hidden="true"> title</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => void award(participant.id, 1, 'artist')}
+                            onClick={() =>
+                              void award(participant.id, 1, 'artist')
+                            }
                             disabled={busy}
                           >
                             <span aria-hidden="true">+1</span>
                             <span className="visually-hidden">
-                              Award one point to {participant.name} for the artist
+                              Award one point to {participant.name} for the
+                              artist
                             </span>
                             <span aria-hidden="true"> artist</span>
                           </button>
@@ -559,15 +802,21 @@ export function App() {
                   <section className="card" aria-labelledby="history-heading">
                     <h3 id="history-heading">Awarded this game</h3>
                     <ul className="score-history">
-                      {activeEvents.map(event => (
+                      {activeEvents.map((event) => (
                         <li key={event.id}>
                           <span>
-                            {nameOf(event.participant_id)}: {event.points} for {event.reason}
+                            {nameOf(event.participant_id)}: {event.points} for{' '}
+                            {event.reason}
                           </span>
-                          <button type="button" onClick={() => void undo(event.id)} disabled={busy}>
+                          <button
+                            type="button"
+                            onClick={() => void undo(event.id)}
+                            disabled={busy}
+                          >
                             <span aria-hidden="true">Undo</span>
                             <span className="visually-hidden">
-                              Undo {event.points} points for {nameOf(event.participant_id)}
+                              Undo {event.points} points for{' '}
+                              {nameOf(event.participant_id)}
                             </span>
                           </button>
                         </li>
@@ -583,13 +832,14 @@ export function App() {
             <aside className="retro-panel" aria-labelledby="panel-heading">
               <h2 id="panel-heading">Quiz master notes</h2>
               <p className="hint">
-                Answers stay concealed on the server until you reveal them, so this window can be
-                shown on a shared screen.
+                Answers stay concealed on the server until you reveal them, so
+                this window can be shown on a shared screen.
               </p>
               <h3>Audio</h3>
               <p className="hint">
-                Dial-up intro: {audio.introSound ? 'on' : 'off'} · Interface sounds:{' '}
-                {audio.uiSounds ? 'on' : 'off'} · Volume: {Math.round(audio.volume * 100)}%
+                Dial-up intro: {audio.introSound ? 'on' : 'off'} · Interface
+                sounds: {audio.uiSounds ? 'on' : 'off'} · Volume:{' '}
+                {Math.round(audio.volume * 100)}%
               </p>
               <button type="button" onClick={() => setDialog('audio')}>
                 Audio preferences…
@@ -601,11 +851,23 @@ export function App() {
         <StatusBar
           connection={connection}
           connectionIcon={connectionIcon}
-          round={game ? `Round ${game.round_number}/${game.rounds}` : 'No document loaded'}
+          round={
+            game
+              ? `Round ${game.round_number}/${game.rounds}`
+              : 'No document loaded'
+          }
           players={game ? `${game.participants.length} teams` : undefined}
-          clock={clock.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+          clock={clockLabel}
         />
       </div>
+
+      <Taskbar
+        windowTitle={WINDOW_TITLE}
+        minimized={minimized}
+        onToggleWindow={() => setMinimized((value) => !value)}
+        startItems={startItems}
+        clock={clockLabel}
+      />
 
       <RetroDialog
         title="Audio preferences"
@@ -619,16 +881,22 @@ export function App() {
               type="checkbox"
               id="pref-intro"
               checked={audio.introSound}
-              onChange={event => setAudio({ ...audio, introSound: event.target.checked })}
+              onChange={(event) =>
+                setAudio({ ...audio, introSound: event.target.checked })
+              }
             />
-            <label htmlFor="pref-intro">Play the dial-up intro when a quiz starts</label>
+            <label htmlFor="pref-intro">
+              Play the dial-up intro when a quiz starts
+            </label>
           </div>
           <div className="radio">
             <input
               type="checkbox"
               id="pref-skip"
               checked={audio.skipIntro}
-              onChange={event => setAudio({ ...audio, skipIntro: event.target.checked })}
+              onChange={(event) =>
+                setAudio({ ...audio, skipIntro: event.target.checked })
+              }
             />
             <label htmlFor="pref-skip">Skip the intro this session</label>
           </div>
@@ -637,13 +905,17 @@ export function App() {
               type="checkbox"
               id="pref-ui"
               checked={audio.uiSounds}
-              onChange={event => setAudio({ ...audio, uiSounds: event.target.checked })}
+              onChange={(event) =>
+                setAudio({ ...audio, uiSounds: event.target.checked })
+              }
             />
             <label htmlFor="pref-ui">Play short interface sounds</label>
           </div>
         </div>
         <div className="field">
-          <label htmlFor="pref-volume">Volume: {Math.round(audio.volume * 100)}%</label>
+          <label htmlFor="pref-volume">
+            Volume: {Math.round(audio.volume * 100)}%
+          </label>
           <input
             className="retro-range"
             id="pref-volume"
@@ -652,16 +924,22 @@ export function App() {
             max={100}
             step={5}
             value={Math.round(audio.volume * 100)}
-            onChange={event => setAudio({ ...audio, volume: Number(event.target.value) / 100 })}
+            onChange={(event) =>
+              setAudio({ ...audio, volume: Number(event.target.value) / 100 })
+            }
           />
           <p className="hint">
-            Sounds are synthesised in the browser, so nothing is downloaded and no recording is
-            bundled with the app.
+            Sounds are synthesised in the browser, so nothing is downloaded and
+            no recording is bundled with the app.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void playDialUpEffect({ volume: audio.volume }).catch(() => undefined)}
+          onClick={() =>
+            void playDialUpEffect({ volume: audio.volume }).catch(
+              () => undefined,
+            )
+          }
         >
           Preview intro sound
         </button>
@@ -674,7 +952,9 @@ export function App() {
         onClose={() => setDialog(undefined)}
       >
         <table className="retro-kbd-table">
-          <caption className="visually-hidden">Keyboard shortcuts for the retro interface</caption>
+          <caption className="visually-hidden">
+            Keyboard shortcuts for the retro interface
+          </caption>
           <thead>
             <tr>
               <th scope="col">Key</th>
@@ -713,13 +993,14 @@ export function App() {
         onClose={() => setDialog(undefined)}
       >
         <p>
-          A music quiz for a shared screen, wearing a 1996 interface. The Windows 95 and Netscape
-          Navigator look is an homage drawn from scratch: no Microsoft, Netscape, or Spotify assets
-          are bundled.
+          A music quiz for a shared screen, wearing a 1996 interface. The
+          Windows 95 and Netscape Navigator look is an homage drawn from
+          scratch: no Microsoft, Netscape, or Spotify assets are bundled.
         </p>
         <p className="hint">
-          Playback control requires a Spotify Premium account and the Web Playback SDK, which is not
-          wired up yet.
+          Audio plays through the Spotify Web Playback SDK in this browser and
+          requires a connected Spotify Premium account. Without one, the quiz
+          keeps time and score only.
         </p>
       </RetroDialog>
 
@@ -730,11 +1011,12 @@ export function App() {
         onClose={() => setDialog(undefined)}
       >
         <p>
-          Playlist import is not available yet. The quiz currently draws its rounds from the demo
-          catalogue on the server.
+          Playlist import is not available yet. The quiz currently draws its
+          rounds from the demo catalogue on the server.
         </p>
         <p className="hint">
-          Connect a Spotify account from the File menu to prepare for playlist support.
+          Connect a Spotify account from the File menu to prepare for playlist
+          support.
         </p>
       </RetroDialog>
 
@@ -755,8 +1037,8 @@ export function App() {
         }
       >
         <p>
-          Exit the current quiz and return to the setup screen? Scores for this game are kept on the
-          server.
+          Exit the current quiz and return to the setup screen? Scores for this
+          game are kept on the server.
         </p>
       </RetroDialog>
     </div>

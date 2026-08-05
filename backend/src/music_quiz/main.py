@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from uuid import UUID
@@ -17,11 +18,14 @@ from music_quiz.domain.game import DomainError, ExcerptMode, Game, GameConfig, G
 from music_quiz.errors import AppError, register_error_handlers
 from music_quiz.oauth_state import OAuthStateStore
 from music_quiz.persistence.sqlite import SQLiteGameRepository
-from music_quiz.persistence.tokens import TokenRepository
+from music_quiz.persistence.tokens import SpotifyToken, TokenRepository
 from music_quiz.services import QuizService
-from music_quiz.spotify.fake import FakeSpotifyCatalog
+from music_quiz.spotify.fake import FakeSpotifyCatalog, SpotifyCatalog
+from music_quiz.spotify.web_api import CatalogError, SpotifyWebCatalog
 
 load_dotenv()
+
+logger = logging.getLogger("music_quiz")
 
 settings: Settings = load_settings(os.environ)
 
@@ -50,6 +54,55 @@ auth_service = (
 service = QuizService(FakeSpotifyCatalog(), repository)
 oauth_states = OAuthStateStore(clock=settings.clock)
 
+FAKE_PLAYLIST_ID = "fake-playlist"
+
+
+def _spotify_token() -> SpotifyToken:
+    """Return a usable Spotify token or fail with the standard error envelope."""
+    if not auth_service:
+        raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
+    try:
+        token = auth_service.get_default_token()
+    except TokenRefreshError as exc:
+        raise AppError(
+            401,
+            "spotify_reauthentication_required",
+            "Your Spotify session expired. Sign in again.",
+            cause=exc,
+        ) from exc
+    if token is None or token.is_expired():
+        raise AppError(
+            401,
+            "spotify_not_authenticated",
+            "Connect a Spotify account before starting playback.",
+        )
+    return token
+
+
+def _access_token() -> str:
+    return _spotify_token().access_token
+
+
+def _has_spotify_session() -> bool:
+    if not auth_service:
+        return False
+    try:
+        token = auth_service.get_default_token()
+    except TokenRefreshError:
+        return False
+    return token is not None and not token.is_expired()
+
+
+def current_catalog() -> SpotifyCatalog:
+    """Real Spotify when a session exists, the demo catalogue otherwise.
+
+    Real URIs are required for audible playback; the fake catalogue keeps the
+    game flow usable (and the tests offline) without an account.
+    """
+    if _has_spotify_session():
+        return SpotifyWebCatalog(_access_token)
+    return service.catalog
+
 
 class ConfigInput(BaseModel):
     rounds: int = Field(10, ge=1, le=100)
@@ -58,6 +111,7 @@ class ConfigInput(BaseModel):
     participants: list[str] = Field(default_factory=lambda: ["Team A"], min_length=1, max_length=12)
     seed: int | None = None
     time_limit_seconds: int | None = Field(None, ge=1, le=7200)
+    playlist_id: str = Field("fake-playlist", min_length=1, max_length=64)
 
 
 class ScoreInput(BaseModel):
@@ -107,7 +161,13 @@ def payload(game: Game, reveal: bool = False) -> dict[str, object]:
             "image_url": current.track.image_url,
         }
     if current and game.status in (GameStatus.PLAYING, GameStatus.PAUSED):
-        result["playback"] = {"position_ms": current.excerpt_start_ms}
+        # The track URI is required by the Web Playback SDK to actually play
+        # audio. It is opaque to the player on screen and carries no title,
+        # artist or album, so concealment is preserved.
+        result["playback"] = {
+            "uri": current.track.uri,
+            "position_ms": current.excerpt_start_ms,
+        }
     return result
 
 
@@ -123,7 +183,7 @@ def health() -> dict[str, object]:
     return {
         "status": "ok",
         "spotify_configured": bool(settings.spotify_client_id),
-        "playback": "stub",
+        "playback": "web-playback-sdk",
     }
 
 
@@ -134,7 +194,7 @@ def config_status() -> dict[str, object]:
         "spotify_client_id_configured": bool(settings.spotify_client_id),
         "redirect_uri": settings.redirect_uri,
         "frontend_origin": settings.frontend_origin,
-        "playback_implemented": False,
+        "playback_implemented": True,
         "problems": list(settings.problems),
     }
 
@@ -165,6 +225,10 @@ def login() -> RedirectResponse:
     return RedirectResponse(url, status_code=307)
 
 
+def _auth_redirect(params: str) -> RedirectResponse:
+    return RedirectResponse(f"{settings.frontend_origin}/?{params}", status_code=303)
+
+
 @app.get("/api/v1/auth/callback")
 def callback(
     code: str | None = None, state: str | None = None, error: str | None = None
@@ -173,41 +237,50 @@ def callback(
 
     The path here MUST match SPOTIFY_REDIRECT_URI and the URI registered in the
     Spotify dashboard, otherwise Spotify refuses the request before it arrives.
+
+    This endpoint is reached by a top-level browser navigation, so it always
+    answers with a redirect back into the app. Raising a JSON error here would
+    dead-end the user on a raw error document.
     """
     auth_state = oauth_states.consume(state)
     if auth_state is None:
         # Covers unknown, replayed, expired and missing state alike; the client
         # is told nothing that would help distinguish them.
-        raise AppError(
-            400,
-            "invalid_oauth_state",
-            "This login link is no longer valid. Start the login again.",
-            log_context={"state": state, "reason": "state_not_consumable"},
-        )
+        logger.warning("oauth_callback_rejected reason=state_not_consumable")
+        return _auth_redirect("auth_error=invalid_state")
     if error:
-        return RedirectResponse(f"{settings.frontend_origin}/?auth_error=denied", status_code=303)
+        return _auth_redirect("auth_error=denied")
     if not code:
-        raise AppError(
-            400,
-            "missing_authorization_code",
-            "Spotify did not return an authorization code.",
-        )
+        return _auth_redirect("auth_error=missing_code")
     if not auth_service:
-        raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
+        return _auth_redirect("auth_error=not_configured")
 
     try:
         auth_service.exchange_code(code, settings.redirect_uri, auth_state.verifier)
     except TokenRefreshError as exc:
         # The upstream message can embed the code or token payload, so it is
-        # logged as a redacted context and never returned to the browser.
-        raise AppError(
-            502,
-            "token_exchange_failed",
-            "Could not complete Spotify sign-in. Please try again.",
-            log_context={"code": code, "state": state},
-            cause=exc,
-        ) from exc
-    return RedirectResponse(f"{settings.frontend_origin}/?authenticated=1", status_code=303)
+        # logged without the sensitive values and never returned to the browser.
+        logger.warning("oauth_token_exchange_failed cause=%s", type(exc).__name__)
+        return _auth_redirect("auth_error=exchange_failed")
+    except Exception as exc:  # noqa: BLE001 - the browser must never see a 500 here
+        logger.exception("oauth_callback_unexpected type=%s", type(exc).__name__)
+        return _auth_redirect("auth_error=unexpected")
+    return _auth_redirect("authenticated=1")
+
+
+@app.get("/api/v1/auth/token")
+def auth_token() -> dict[str, object]:
+    """Hand the browser a short-lived access token for the Web Playback SDK.
+
+    This is a single-user application bound to the loopback interface and a
+    strict CORS allowlist; the SDK cannot run without the token in the page.
+    """
+    token = _spotify_token()
+    return {
+        "access_token": token.access_token,
+        "expires_at": token.expires_at,
+        "scope": token.scope,
+    }
 
 
 @app.post("/api/v1/auth/logout")
@@ -220,12 +293,22 @@ def logout() -> dict[str, bool]:
 
 @app.get("/api/v1/playlists")
 def playlists() -> list[dict[str, object]]:
-    return service.catalog.playlists()
+    try:
+        return current_catalog().playlists()
+    except CatalogError as exc:
+        raise AppError(
+            502, "spotify_unavailable", "Could not read your Spotify playlists.", cause=exc
+        ) from exc
 
 
 @app.get("/api/v1/playlists/{playlist_id}/analysis")
 def analysis(playlist_id: str) -> dict[str, int]:
-    items = service.catalog.playlist_items(playlist_id)
+    try:
+        items = current_catalog().playlist_items(playlist_id)
+    except CatalogError as exc:
+        raise AppError(
+            502, "spotify_unavailable", "Could not read that Spotify playlist.", cause=exc
+        ) from exc
     eligible = len(
         {i.get("uri") for i in items if isinstance(i, dict) and isinstance(i.get("uri"), str)}
     )
@@ -238,9 +321,13 @@ def analysis(playlist_id: str) -> dict[str, int]:
 
 @app.post("/api/v1/games")
 def create_game(body: ConfigInput) -> dict[str, object]:
+    catalog = current_catalog()
+    playlist_id = body.playlist_id
+    if isinstance(catalog, FakeSpotifyCatalog):
+        playlist_id = FAKE_PLAYLIST_ID
     try:
         game = service.create(
-            "fake-playlist",
+            playlist_id,
             GameConfig(
                 rounds=body.rounds,
                 excerpt_seconds=body.excerpt_seconds,
@@ -249,7 +336,12 @@ def create_game(body: ConfigInput) -> dict[str, object]:
             ),
             body.participants,
             body.seed,
+            catalog=catalog,
         )
+    except CatalogError as exc:
+        raise AppError(
+            502, "spotify_unavailable", "Could not read that Spotify playlist.", cause=exc
+        ) from exc
     except DomainError as exc:
         raise AppError(400, "invalid_game_config", str(exc)) from exc
     return payload(game)

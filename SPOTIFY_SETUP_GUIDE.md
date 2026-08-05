@@ -88,3 +88,34 @@ Delete token (logout):
 ```bash
 sqlite3 .data/quiz.db "DELETE FROM auth_tokens;"
 ```
+
+## Audio playback
+
+Rounds play real audio through the Spotify Web Playback SDK in the browser.
+
+Requirements:
+
+- a connected Spotify account (File → Connect Spotify account),
+- **Spotify Premium** — the Web Playback SDK refuses to play on free accounts,
+- the `streaming` scope, which the login request already asks for.
+
+How it works:
+
+1. `GET /api/v1/auth/token` hands the page a short-lived access token. The
+   endpoint is only reachable from the configured frontend origin and only
+   returns a token when a session exists.
+2. The SDK registers a device named "Spotify Music Quiz".
+3. Starting a round `PUT`s the round's track URI and excerpt offset to
+   `/v1/me/player/play` for that device.
+
+While a Spotify account is connected, playlists and tracks come from your real
+Spotify library. Without one, the app falls back to the offline demo catalogue
+and states clearly that it cannot play audio.
+
+### Sign-in errors
+
+The OAuth callback always redirects back into the app with an `auth_error`
+code (`denied`, `invalid_state`, `missing_code`, `not_configured`,
+`exchange_failed`, `unexpected`) and the app shows a readable message. If you
+previously saw a raw `{"error":{"code":"internal_error"}}` document in the
+browser, that path no longer exists.

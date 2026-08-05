@@ -2,14 +2,14 @@ import { RetroIcon } from './icons';
 
 interface TitleBarProps {
   title: string;
-  /** Hides the optional side panels. */
+  /** Minimises the window down to its taskbar button. */
   onMinimize: () => void;
   /** Toggles the app-internal focus mode. */
   onMaximize: () => void;
   /** Opens the confirmed reset dialog. */
   onClose: () => void;
   focusMode: boolean;
-  panelsHidden: boolean;
+  minimized: boolean;
 }
 
 /**
@@ -24,7 +24,7 @@ export function TitleBar({
   onMaximize,
   onClose,
   focusMode,
-  panelsHidden,
+  minimized,
 }: TitleBarProps) {
   return (
     <div className="retro-titlebar">
@@ -37,9 +37,9 @@ export function TitleBar({
           type="button"
           className="retro-window-button"
           onClick={onMinimize}
-          aria-pressed={panelsHidden}
-          aria-label={panelsHidden ? 'Show side panels' : 'Hide side panels'}
-          title={panelsHidden ? 'Show side panels' : 'Hide side panels'}
+          aria-pressed={minimized}
+          aria-label="Minimise window"
+          title="Minimise window"
         >
           <span aria-hidden="true">_</span>
         </button>

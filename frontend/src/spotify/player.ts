@@ -1,13 +1,12 @@
 /**
  * Playback boundary.
  *
- * IMPORTANT: this application does NOT play Spotify audio. No Web Playback
- * SDK is loaded, no device is created, and no audio is produced. The stub
- * below records what *would* be played so the game flow can be developed and
- * tested end to end without Spotify Premium.
- *
- * A real implementation must satisfy `PlaybackPort` and additionally handle
- * device readiness, Premium eligibility, and token refresh.
+ * Two implementations satisfy `PlaybackPort`:
+ *  - `StubPlayback` (this file) records what *would* be played. It is used when
+ *    no Spotify account is connected, and in tests, so the game flow works
+ *    offline and without Premium.
+ *  - `SpotifyWebPlayback` (./webPlayback) produces real audio through the
+ *    Spotify Web Playback SDK.
  */
 
 export interface PlaybackTarget {
@@ -50,4 +49,8 @@ export class StubPlayback implements PlaybackPort {
 }
 
 export const PLAYBACK_UNAVAILABLE_NOTICE =
-  'Audio playback is not implemented. Play the track yourself; the quiz only keeps time and score.';
+  'No Spotify account is connected, so the quiz cannot play audio. ' +
+  'Play the track yourself; the quiz keeps time and score.';
+
+export const PLAYBACK_READY_NOTICE =
+  'Spotify is connected. Rounds play through this browser; Spotify Premium is required.';

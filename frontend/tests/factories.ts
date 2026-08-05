@@ -31,6 +31,6 @@ export const CONFIG_OK = {
   spotify_client_id_configured: true,
   redirect_uri: 'http://127.0.0.1:8000/api/v1/auth/callback',
   frontend_origin: 'http://127.0.0.1:5173',
-  playback_implemented: false,
+  playback_implemented: true,
   problems: [] as string[],
 };

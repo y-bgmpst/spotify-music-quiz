@@ -44,12 +44,18 @@ export interface Game {
   participants: Participant[];
   score_events: ScoreEvent[];
   answer?: Answer;
-  playback?: { position_ms: number };
+  playback?: { uri?: string; position_ms: number };
 }
 
 export interface AuthStatus {
   authenticated: boolean;
   configured: boolean;
+}
+
+export interface AccessToken {
+  access_token: string;
+  expires_at: number;
+  scope: string;
 }
 
 export interface ConfigStatus {
@@ -165,6 +171,7 @@ export const api = {
   config: (init?: RequestOptions) => request<ConfigStatus>('/config', init),
   authStatus: (init?: RequestOptions) => request<AuthStatus>('/auth/status', init),
   loginUrl: () => `${baseUrl}/auth/login`,
+  accessToken: (init?: RequestOptions) => request<AccessToken>('/auth/token', init),
   create: (body: Record<string, unknown>, init?: RequestOptions) =>
     request<Game>('/games', { ...init, method: 'POST', body }),
   get: (id: string, init?: RequestOptions) => request<Game>(`/games/${id}`, init),

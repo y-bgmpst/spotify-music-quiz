@@ -10,7 +10,7 @@ test.describe('sanity', () => {
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: 'Spotify Music Quiz' })).toBeVisible();
-    await expect(page.getByText(/Audio playback is not implemented/)).toBeVisible();
+    await expect(page.getByText(/No Spotify account is connected/)).toBeVisible();
     expect(failures).toEqual([]);
   });
 });
