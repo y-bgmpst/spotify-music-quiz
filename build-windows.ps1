@@ -27,14 +27,14 @@ Write-Host ""
 
 # Install PyInstaller if needed
 Write-Host "Installing PyInstaller..." -ForegroundColor Yellow
-pip install pyinstaller | Out-Null
+python -m pip install pyinstaller | Out-Null
 Write-Host "✓ PyInstaller ready" -ForegroundColor Green
 Write-Host ""
 
 # Build backend
 Write-Host "Building backend..." -ForegroundColor Yellow
 Write-Host "  → Installing backend dependencies..." -ForegroundColor Gray
-pip install -e "backend[dev]" | Out-Null
+python -m pip install -e "backend[dev]" | Out-Null
 
 Write-Host "  → Compiling with PyInstaller..." -ForegroundColor Gray
 pyinstaller windows-portable/backend.spec --clean --noconfirm
@@ -49,7 +49,7 @@ Write-Host ""
 # Build frontend
 Write-Host "Building frontend..." -ForegroundColor Yellow
 Write-Host "  → Installing frontend dependencies..." -ForegroundColor Gray
-npm --prefix frontend install | Out-Null
+npm --prefix frontend ci | Out-Null
 
 Write-Host "  → Building production bundle..." -ForegroundColor Gray
 npm --prefix frontend run build | Out-Null

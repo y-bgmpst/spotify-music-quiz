@@ -27,6 +27,7 @@ build/
 dist-windows/
 dist-linux/
 *.spec
+!windows-portable/backend.spec
 *.exe
 *.msi
 windows-portable/dist/

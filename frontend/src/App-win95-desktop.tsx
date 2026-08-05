@@ -131,7 +131,7 @@ export function App() {
     return `${mins}:${remainingSecs.toString().padStart(2, '0')}`;
   }
 
-  function handleIconClick(id: string, event: React.MouseEvent) {
+  function handleIconClick(id: string, event: globalThis.MouseEvent) {
     if (!event.ctrlKey) {
       setDesktopIcons(icons =>
         icons.map(icon => ({
@@ -148,7 +148,7 @@ export function App() {
     }
   }
 
-  function handleWindowMouseDown(e: React.MouseEvent) {
+  function handleWindowMouseDown(e: globalThis.MouseEvent) {
     if ((e.target as HTMLElement).closest('.window-titlebar')) {
       setDragging(true);
       setDragStart({
@@ -158,7 +158,7 @@ export function App() {
     }
   }
 
-  function handleMouseMove(e: React.MouseEvent) {
+  function handleMouseMove(e: globalThis.MouseEvent) {
     if (dragging) {
       setWindowPos({
         x: e.clientX - dragStart.x,
@@ -182,12 +182,12 @@ export function App() {
       onClick={() => setDesktopIcons(icons => icons.map(i => ({ ...i, selected: false })))}
     >
       {/* Desktop Icons */}
-      <div className="desktop-icons" onClick={(e) => e.stopPropagation()}>
+      <div className="desktop-icons" onClick={(e: globalThis.MouseEvent) => e.stopPropagation()}>
         {desktopIcons.map(icon => (
           <div
             key={icon.id}
             className={`desktop-icon ${icon.selected ? 'selected' : ''}`}
-            onClick={(e) => {
+            onClick={(e: globalThis.MouseEvent) => {
               e.stopPropagation();
               handleIconClick(icon.id, e);
             }}

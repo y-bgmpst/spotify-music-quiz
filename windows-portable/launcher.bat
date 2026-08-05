@@ -19,7 +19,7 @@ if "%ERRORLEVEL%"=="0" (
 
 REM Starte Backend im Hintergrund
 echo Starte Spotify Quiz Backend...
-start /B spotify-quiz-backend.exe
+start "Spotify Music Quiz Backend" /B "%~dp0spotify-quiz-backend.exe"
 
 REM Warte bis Backend bereit ist (max 30 Sekunden)
 echo Warte auf Backend-Start...
@@ -42,7 +42,7 @@ echo Backend gestartet!
 :OPEN_BROWSER
 REM Öffne Browser
 echo Oeffne Browser...
-start http://127.0.0.1:8000/frontend/
+start "Spotify Music Quiz" http://127.0.0.1:8000/frontend/
 
 echo.
 echo ==============================================
