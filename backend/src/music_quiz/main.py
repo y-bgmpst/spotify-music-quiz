@@ -26,7 +26,7 @@ app = FastAPI(title="Spotify Music Quiz", version="0.1.0")
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin],
+    allow_origins=[frontend_origin, "http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,

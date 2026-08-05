@@ -61,6 +61,7 @@ export function App() {
       const newGame = await api.create({
         rounds: 10,
         excerpt_seconds: 10,
+        mode: 'intro',
         participants: ['Team A', 'Team B'],
         seed: 42,
         time_limit_seconds: timeLimit || undefined,

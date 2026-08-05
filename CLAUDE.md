@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Spotify Music Quiz is a local-first playlist guessing game. The host authenticates via Spotify OAuth, selects a playlist, configures teams and rounds, and plays non-repeating track excerpts while managing scoring. The MVP uses a fake Spotify adapter for automated testing; live playback requires Premium and manual verification.
+Spotify Music Quiz is a local-first playlist guessing game with an authentic Windows 95 UI theme. The host authenticates via Spotify OAuth, selects a playlist, configures teams and rounds, and plays non-repeating track excerpts while managing scoring. The MVP uses a fake Spotify adapter for automated testing; live playback requires Premium and manual verification.
+
+**UI Theme:** Windows 95 desktop environment with Netscape Navigator-styled browser window, taskbar, desktop icons, Frankfurt skyline background, and 90s sound effects via Web Audio API.
 
 ## Architecture
 
@@ -16,9 +18,12 @@ Spotify Music Quiz is a local-first playlist guessing game. The host authenticat
 - `music_quiz/main.py` — FastAPI routes, CORS, auth flow, game lifecycle endpoints
 
 **Frontend (React/TypeScript/Vite):**
-- `src/App.tsx` — single-component UI handling game state, timer, playback coordination
+- `src/App.tsx` — main game UI component
+- `src/App-win95-desktop.tsx` — Windows 95 desktop wrapper with taskbar, icons, and Netscape Navigator window
+- `src/App-90s.tsx` — alternative 90s-styled variant
 - `src/api/client.ts` — typed API wrapper
 - `src/spotify/player.ts` — `FakePlayback` stub (Web Playback SDK integration pending)
+- Web Audio API integration for 90s sound effects
 
 **Key principles:**
 - Backend is authoritative for state, queue, excerpt positions, scoring
@@ -93,6 +98,22 @@ npm --prefix frontend run build
 Full verification (format, lint, typecheck, test, build):
 ```sh
 make verify
+```
+
+Windows portable build (creates standalone .exe bundle):
+```sh
+make windows-portable              # Full build (Windows only)
+make build-frontend                # Frontend only
+make build-backend                 # Backend .exe only (requires PyInstaller)
+make package                       # Create portable ZIP
+make clean                         # Remove build artifacts
+```
+
+Utility scripts (in `scripts/` directory):
+```sh
+.venv/bin/python scripts/import-playlist.py           # Import playlist from Excel
+.venv/bin/python scripts/batch-import-playlist.py    # Rate-limit-safe batch import
+.venv/bin/python scripts/find-playlists.py           # Find public 90s playlists
 ```
 
 ## Domain Model

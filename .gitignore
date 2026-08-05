@@ -8,12 +8,19 @@ __pycache__/
 venv/
 ENV/
 env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Node
 node_modules/
 dist/
 .npm
 .yarn/
+*.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
 
 # Build artifacts
 build/
@@ -22,15 +29,20 @@ dist-linux/
 *.spec
 *.exe
 *.msi
+windows-portable/dist/
+windows-portable/build/
 
 # Database
 .data/
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
 
 # Secrets & Config
 .env
-.env.local
+.env.*
+!.env.example
 *.pem
 *.key
 credentials.json
@@ -59,3 +71,16 @@ temp/
 
 # Claude
 .claude/
+
+# Disposable review and handover artifacts
+HANDOVER*.md
+*_HANDOVER.md
+REVIEW_HANDOVER*.md
+*_REVIEW_HANDOVER.md
+REVIEW_REPORT.md
+*_REVIEW_REPORT.md
+handover/
+review-handover/
+
+# Accidental conversational exports
+Verstanden. Ich warte auf deine*
