@@ -4,17 +4,13 @@
  * This is the real audio path. It loads the SDK on demand, registers a browser
  * device with a token fetched from the backend, and drives it through the same
  * `PlaybackPort` the stub implements, so the game logic does not change.
- *
- * Requirements the caller must respect:
- *  - a connected Spotify account with the `streaming` scope, and
- *  - a Spotify Premium subscription (the SDK refuses to play otherwise), and
- *  - a user gesture before the first `start()` call (browser autoplay policy).
  */
 
 import type { PlaybackPort, PlaybackTarget } from './player';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
 const PLAYER_NAME = 'Spotify Music Quiz';
+const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 export class PlaybackError extends Error {
   readonly kind: 'unsupported' | 'auth' | 'premium' | 'device' | 'playback';
@@ -52,8 +48,7 @@ declare global {
 
 let sdkPromise: Promise<SpotifyGlobal> | undefined;
 
-/** Loads the SDK script once per page and resolves when it is ready. */
-export function loadSpotifySdk(timeoutMs = 15_000): Promise<SpotifyGlobal> {
+export function loadSpotifySdk(timeoutMs = DEFAULT_CONNECT_TIMEOUT_MS): Promise<SpotifyGlobal> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return Promise.reject(new PlaybackError('unsupported', 'Playback needs a browser window.'));
   }
@@ -88,15 +83,63 @@ export function loadSpotifySdk(timeoutMs = 15_000): Promise<SpotifyGlobal> {
 }
 
 export interface SpotifyPlaybackOptions {
-  /** Fetches a fresh access token from the backend. */
   getToken: () => Promise<string>;
-  /** Injectable for tests. */
   loadSdk?: (timeoutMs?: number) => Promise<SpotifyGlobal>;
   fetchImpl?: typeof fetch;
   volume?: number;
+  connectTimeoutMs?: number;
 }
 
-/** Plays real audio through the Spotify Web Playback SDK. */
+function playbackFailure(kind: PlaybackError['kind'], message: string): PlaybackError {
+  return new PlaybackError(kind, message);
+}
+
+function waitForDevice(
+  player: SpotifyPlayerLike,
+  tokenFailure: Promise<never>,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const finish = (operation: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      operation();
+    };
+    const fail = (error: PlaybackError) => finish(() => reject(error));
+    const timer = window.setTimeout(() => {
+      fail(playbackFailure('device', 'The Spotify player did not become ready in time.'));
+    }, timeoutMs);
+
+    player.addListener('ready', (payload: never) => {
+      const deviceId = (payload as unknown as { device_id?: string }).device_id;
+      if (!deviceId) {
+        fail(playbackFailure('device', 'Spotify did not provide a playback device.'));
+        return;
+      }
+      finish(() => resolve(deviceId));
+    });
+    player.addListener('authentication_error', () => {
+      fail(playbackFailure('auth', 'Spotify rejected the session. Sign in again.'));
+    });
+    player.addListener('account_error', () => {
+      fail(playbackFailure('premium', 'Spotify playback requires a Premium account.'));
+    });
+    player.addListener('initialization_error', () => {
+      fail(playbackFailure('unsupported', 'This browser cannot play Spotify audio.'));
+    });
+
+    void tokenFailure.catch((error: PlaybackError) => fail(error));
+    void player
+      .connect()
+      .then(connected => {
+        if (!connected) fail(playbackFailure('device', 'The Spotify player could not connect.'));
+      })
+      .catch(() => fail(playbackFailure('device', 'The Spotify player could not connect.')));
+  });
+}
+
 export class SpotifyWebPlayback implements PlaybackPort {
   readonly kind = 'spotify' as const;
 
@@ -109,58 +152,53 @@ export class SpotifyWebPlayback implements PlaybackPort {
     this.options = options;
   }
 
-  /** Connects the SDK and resolves with the device id, once. */
   private connect(): Promise<string> {
     if (this.ready) return this.ready;
-    this.ready = (async () => {
-      const sdk = await (this.options.loadSdk ?? loadSpotifySdk)();
-      const player = new sdk.Player({
-        name: PLAYER_NAME,
-        volume: this.options.volume ?? 0.8,
-        getOAuthToken: cb => {
-          void this.options
-            .getToken()
-            .then(cb)
-            .catch(() => undefined);
-        },
-      });
-
-      const deviceId = await new Promise<string>((resolve, reject) => {
-        player.addListener('ready', (payload: never) => {
-          resolve((payload as unknown as { device_id: string }).device_id);
-        });
-        player.addListener('authentication_error', () => {
-          reject(new PlaybackError('auth', 'Spotify rejected the session. Sign in again.'));
-        });
-        player.addListener('account_error', () => {
-          reject(new PlaybackError('premium', 'Spotify playback requires a Premium account.'));
-        });
-        player.addListener('initialization_error', () => {
-          reject(new PlaybackError('unsupported', 'This browser cannot play Spotify audio.'));
-        });
-        void player.connect().then(connected => {
-          if (!connected) {
-            reject(new PlaybackError('device', 'The Spotify player could not connect.'));
-          }
-        });
-      });
-
-      this.player = player;
-      this.deviceId = deviceId;
-      return deviceId;
-    })();
-
-    this.ready = this.ready.catch(error => {
-      // A failed connection must not poison every later attempt.
+    this.ready = this.createConnection().catch(error => {
+      this.player?.disconnect();
+      this.player = undefined;
+      this.deviceId = undefined;
       this.ready = undefined;
       throw error;
     });
     return this.ready;
   }
 
+  private async createConnection(): Promise<string> {
+    const sdk = await (this.options.loadSdk ?? loadSpotifySdk)();
+    let rejectToken!: (error: PlaybackError) => void;
+    const tokenFailure = new Promise<never>((_, reject) => {
+      rejectToken = reject;
+    });
+    const player = new sdk.Player({
+      name: PLAYER_NAME,
+      volume: this.options.volume ?? 0.8,
+      getOAuthToken: cb => {
+        void this.options
+          .getToken()
+          .then(cb)
+          .catch(() => rejectToken(playbackFailure('auth', 'Spotify sign-in expired. Sign in again.')));
+      },
+    });
+    this.player = player;
+
+    const deviceId = await waitForDevice(
+      player,
+      tokenFailure,
+      this.options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+    );
+    this.deviceId = deviceId;
+    return deviceId;
+  }
+
   async start(target: PlaybackTarget): Promise<void> {
+    if (!target.uri || target.uri === 'unknown') {
+      throw playbackFailure('playback', 'The current round has no valid Spotify track URI.');
+    }
     const deviceId = await this.connect();
-    const token = await this.options.getToken();
+    const token = await this.options.getToken().catch(() => {
+      throw playbackFailure('auth', 'Spotify sign-in expired. Sign in again.');
+    });
     const doFetch = this.options.fetchImpl ?? fetch;
     let response: Response;
     try {
@@ -176,16 +214,16 @@ export class SpotifyWebPlayback implements PlaybackPort {
         },
       );
     } catch {
-      throw new PlaybackError('playback', 'Could not reach Spotify to start the track.');
+      throw playbackFailure('playback', 'Could not reach Spotify to start the track.');
     }
     if (response.status === 401) {
-      throw new PlaybackError('auth', 'Spotify rejected the session. Sign in again.');
+      throw playbackFailure('auth', 'Spotify rejected the session. Sign in again.');
     }
     if (response.status === 403) {
-      throw new PlaybackError('premium', 'Spotify playback requires a Premium account.');
+      throw playbackFailure('premium', 'Spotify playback requires a Premium account.');
     }
     if (!response.ok && response.status !== 204) {
-      throw new PlaybackError('playback', 'Spotify refused to start the track.');
+      throw playbackFailure('playback', 'Spotify refused to start the track.');
     }
   }
 
@@ -202,7 +240,7 @@ export class SpotifyWebPlayback implements PlaybackPort {
     try {
       await this.player.pause();
     } catch {
-      // A pause failure on teardown is not actionable for the user.
+      // Teardown remains best-effort.
     }
     this.player.disconnect();
     this.player = undefined;
@@ -210,7 +248,6 @@ export class SpotifyWebPlayback implements PlaybackPort {
     this.ready = undefined;
   }
 
-  /** Exposed for diagnostics and tests. */
   get device(): string | undefined {
     return this.deviceId;
   }
