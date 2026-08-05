@@ -141,7 +141,11 @@ windows-portable/        Portable launcher assets
 
 ## Design direction
 
-The interface is intentionally inspired by Windows 95 and Netscape Navigator: beveled controls, a desktop/taskbar shell, a browser-like quiz window, dense status information, and restrained 1990s colors. See [the design-generation prompt](docs/win95-netscape-design-prompt.md) for the full visual and UX brief.
+The interface is intentionally inspired by Windows 95 and Netscape Navigator: beveled controls, a desktop/taskbar shell, a browser-like quiz window, dense status information, and restrained 1990s colors.
+
+## Contributing and AI tooling
+
+AI assistant instructions, prompt files, chat exports, and handover documents are intentionally not tracked in this repository. Keep them local; `.gitignore` already excludes the common filenames.
 
 ## Security and Spotify boundaries
 

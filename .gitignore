@@ -28,6 +28,7 @@ dist-windows/
 dist-linux/
 *.spec
 !windows-portable/backend.spec
+!build-scripts/backend.spec
 *.exe
 *.msi
 windows-portable/dist/
@@ -70,19 +71,38 @@ tmp/
 temp/
 *.tmp
 
-# Claude
+# AI agent instructions, prompts, handovers and chat exports.
+# These are workflow scaffolding and must not live in the repository.
 .claude/
-
-# Disposable review and handover artifacts
+.codex/
+.cursor/
+.aider*
+.github/copilot-instructions.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+START_HERE.md
+*_PROMPT.md
+*_PROMPTS.md
+*_INSTRUCTIONS.md
+CHATGPT*
+CODEX*
+chat_gpt*
+chatgpt*
+codex*
 HANDOVER*.md
 *_HANDOVER.md
-!docs/CHATGPT_WEB_HANDOVER.md
-REVIEW_HANDOVER*.md
-*_REVIEW_HANDOVER.md
-REVIEW_REPORT.md
-*_REVIEW_REPORT.md
 handover/
 review-handover/
+
+# Generated review/status reports
+CODE_REVIEW.md
+*_REVIEW.md
+REVIEW_REPORT.md
+*_REVIEW_REPORT.md
+CURRENT_STATUS.md
+STATUS_REPORT.md
+PHASE_*_SUMMARY.md
 
 # Accidental conversational exports
 Verstanden. Ich warte auf deine*
