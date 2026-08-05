@@ -1,59 +1,64 @@
 /**
- * Synthetic dial-up handshake effect.
+ * Authentic dial-up modem handshake playback.
  *
- * Why synthesised and not a sample: shipping a recording of a real 1990s modem
- * would mean shipping audio of unclear provenance. Everything here is generated
- * at runtime with the Web Audio API, so the repository carries no audio assets
- * and no third-party licence obligations.
+ * The recording is William Termini's 28.6 second dial-up modem handshake,
+ * published on Wikimedia Commons and dedicated to the public domain by the
+ * copyright holder. The browser streams the OGG file directly from Wikimedia
+ * until the asset is vendored into the release package.
  *
  * Contract:
- * - never throws for an environment without Web Audio; it resolves instead
- * - never keeps an AudioContext open after the promise settles
- * - only one effect can be audible at a time; a new call cancels the previous
- * - honours an AbortSignal at any point, including before the first sample
+ * - playback only starts after the caller's user interaction
+ * - only one handshake can play at a time
+ * - abort/stop pauses immediately and releases the media element
+ * - blocked or unavailable audio never prevents the quiz from starting
  */
 
 export interface DialUpEffectOptions {
-  /** Peak gain, 0 (silent) to 1 (loud). Values outside the range are clamped. */
+  /** Playback volume, clamped to 0..1. */
   volume: number;
-  /** Total duration. Clamped to 1000-6000 ms. Defaults to 3800 ms. */
+  /** Optional maximum playback time, clamped to 1..30 seconds. */
   durationMs?: number;
   /** Caller-owned cancellation. */
   signal?: AbortSignal;
 }
 
+export const DIAL_UP_AUDIO_URL =
+  'https://upload.wikimedia.org/wikipedia/commons/3/33/Dial_up_modem_noises.ogg';
+
 const MIN_DURATION_MS = 1000;
-const MAX_DURATION_MS = 6000;
-const DEFAULT_DURATION_MS = 3800;
+const MAX_DURATION_MS = 30_000;
+const DEFAULT_DURATION_MS = 28_700;
 
-type AudioContextCtor = typeof AudioContext;
-
-/** Contexts this module has opened and not yet closed. Used by tests. */
-let openContexts = 0;
-/** Aborts the previous effect so two clicks cannot stack two handshakes. */
 let currentRun: AbortController | undefined;
+let currentAudio: HTMLAudioElement | undefined;
 
+/** Kept for compatibility with existing diagnostics and tests. */
 export function openAudioContextCount(): number {
-  return openContexts;
+  return currentAudio ? 1 : 0;
 }
 
 export function isDialUpEffectPlaying(): boolean {
-  return currentRun !== undefined;
+  return currentRun !== undefined && currentAudio !== undefined;
 }
 
 /** Cancels a running effect. Safe to call when nothing is playing. */
 export function stopDialUpEffect(): void {
   currentRun?.abort();
   currentRun = undefined;
+  releaseAudio();
 }
 
-function resolveContextCtor(): AudioContextCtor | undefined {
-  if (typeof window === 'undefined') return undefined;
-  const scope = window as unknown as {
-    AudioContext?: AudioContextCtor;
-    webkitAudioContext?: AudioContextCtor;
-  };
-  return scope.AudioContext ?? scope.webkitAudioContext;
+function releaseAudio(): void {
+  const audio = currentAudio;
+  currentAudio = undefined;
+  if (!audio) return;
+  try {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  } catch {
+    // A detached or already-failed media element needs no further cleanup.
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -61,148 +66,73 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Band-limited noise buffer standing in for the carrier hiss. */
-function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer | undefined {
-  if (typeof ctx.createBuffer !== 'function') return undefined;
-  const frames = Math.max(1, Math.floor(ctx.sampleRate * seconds));
-  const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
-  const channel = buffer.getChannelData(0);
-  for (let i = 0; i < frames; i += 1) {
-    channel[i] = (Math.random() * 2 - 1) * 0.6;
-  }
-  return buffer;
-}
-
-/**
- * Plays a short handshake: two dial tones, a warble, then carrier noise that
- * fades out. Resolves when the sound finished, was skipped, or could not run.
- */
-export async function playDialUpEffect(options: DialUpEffectOptions): Promise<void> {
+export async function playDialUpEffect(
+  options: DialUpEffectOptions,
+): Promise<void> {
   const volume = clamp(options.volume, 0, 1);
-  const durationMs = clamp(options.durationMs ?? DEFAULT_DURATION_MS, MIN_DURATION_MS, MAX_DURATION_MS);
+  const durationMs = clamp(
+    options.durationMs ?? DEFAULT_DURATION_MS,
+    MIN_DURATION_MS,
+    MAX_DURATION_MS,
+  );
 
-  if (options.signal?.aborted) return;
-  if (volume === 0) return;
-
-  const Ctor = resolveContextCtor();
-  if (!Ctor) return;
+  if (options.signal?.aborted || volume === 0 || typeof Audio === 'undefined') {
+    return;
+  }
 
   stopDialUpEffect();
-  const run = new AbortController();
-  currentRun = run;
-  options.signal?.addEventListener('abort', () => run.abort(), { once: true });
 
-  let ctx: AudioContext | undefined;
-  const nodes: { disconnect: () => void }[] = [];
+  const run = new AbortController();
+  const audio = new Audio(DIAL_UP_AUDIO_URL);
+  currentRun = run;
+  currentAudio = audio;
+
+  audio.preload = 'auto';
+  audio.volume = volume;
+  audio.loop = false;
+
+  const externalAbort = () => run.abort();
+  options.signal?.addEventListener('abort', externalAbort, { once: true });
 
   try {
-    ctx = new Ctor();
-    openContexts += 1;
-    if (typeof ctx.resume === 'function' && ctx.state === 'suspended') {
-      await ctx.resume();
-    }
-    if (run.signal.aborted) return;
-
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(volume * 0.35, ctx.currentTime);
-    master.connect(ctx.destination);
-    nodes.push(master);
-
-    const now = ctx.currentTime;
-    const seconds = durationMs / 1000;
-
-    // Two DTMF-ish dial tones, then a rising warble: recognisably "dialling"
-    // without reproducing any particular recording.
-    const tones: { freq: number; at: number; length: number }[] = [
-      { freq: 350, at: 0, length: 0.35 },
-      { freq: 440, at: 0, length: 0.35 },
-      { freq: 697, at: 0.45, length: 0.16 },
-      { freq: 1209, at: 0.45, length: 0.16 },
-      { freq: 852, at: 0.68, length: 0.16 },
-      { freq: 1336, at: 0.68, length: 0.16 },
-      { freq: 1100, at: 0.95, length: 0.3 },
-      { freq: 2100, at: 1.3, length: 0.45 },
-    ];
-
-    for (const tone of tones) {
-      if (tone.at >= seconds) continue;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(tone.freq, now + tone.at);
-      gain.gain.setValueAtTime(0.0001, now + tone.at);
-      gain.gain.linearRampToValueAtTime(0.5, now + tone.at + 0.02);
-      gain.gain.linearRampToValueAtTime(0.0001, now + Math.min(seconds, tone.at + tone.length));
-      osc.connect(gain);
-      gain.connect(master);
-      osc.start(now + tone.at);
-      osc.stop(now + Math.min(seconds, tone.at + tone.length) + 0.02);
-      nodes.push(osc, gain);
-    }
-
-    // Carrier hiss for the remainder, gently faded so there is no harsh peak.
-    const noiseStart = Math.min(1.75, seconds * 0.5);
-    const noiseLength = Math.max(0.2, seconds - noiseStart - 0.1);
-    const buffer = createNoiseBuffer(ctx, noiseLength);
-    if (buffer && typeof ctx.createBufferSource === 'function') {
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, now + noiseStart);
-      gain.gain.linearRampToValueAtTime(0.35, now + noiseStart + 0.15);
-      gain.gain.linearRampToValueAtTime(0.0001, now + noiseStart + noiseLength);
-      if (typeof ctx.createBiquadFilter === 'function') {
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.setValueAtTime(1800, now + noiseStart);
-        source.connect(filter);
-        filter.connect(gain);
-        nodes.push(filter);
-      } else {
-        source.connect(gain);
-      }
-      gain.connect(master);
-      source.start(now + noiseStart);
-      source.stop(now + noiseStart + noiseLength);
-      nodes.push(source, gain);
-    }
-
-    await waitFor(durationMs, run.signal);
+    const finished = waitForPlaybackEnd(audio, durationMs, run.signal);
+    await audio.play();
+    await finished;
   } catch {
-    // A blocked or unavailable audio device must never surface to the caller:
-    // the intro is decoration, the game start is the contract.
-    return;
+    // Browser autoplay policy, unavailable network/audio device, or media
+    // decoding errors are non-fatal decoration failures.
   } finally {
-    for (const node of nodes) {
-      try {
-        node.disconnect();
-      } catch {
-        /* already detached */
-      }
+    options.signal?.removeEventListener('abort', externalAbort);
+    if (currentRun === run) {
+      currentRun = undefined;
+      releaseAudio();
     }
-    if (ctx) {
-      try {
-        await ctx.close();
-      } catch {
-        /* context already closed by the browser */
-      }
-      openContexts = Math.max(0, openContexts - 1);
-    }
-    if (currentRun === run) currentRun = undefined;
   }
 }
 
-function waitFor(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise(resolve => {
-    if (signal.aborted) {
+function waitForPlaybackEnd(
+  audio: HTMLAudioElement,
+  maximumMs: number,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = window.setTimeout(finish, maximumMs);
+
+    function finish(): void {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      audio.removeEventListener('ended', finish);
+      audio.removeEventListener('error', finish);
+      signal.removeEventListener('abort', finish);
       resolve();
-      return;
     }
-    const id = setTimeout(finish, ms);
+
+    audio.addEventListener('ended', finish, { once: true });
+    audio.addEventListener('error', finish, { once: true });
     signal.addEventListener('abort', finish, { once: true });
-    function finish() {
-      clearTimeout(id);
-      resolve();
-    }
+
+    if (signal.aborted) finish();
   });
 }
