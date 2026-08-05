@@ -225,11 +225,7 @@ export function App() {
     } catch (caught) {
       // Playback problems never abort the round: the host can still keep time
       // and score while playing the track by other means.
-      setError(
-        caught instanceof PlaybackError
-          ? caught.message
-          : 'Spotify playback failed. The round continues without audio.',
-      );
+      setError(caught instanceof PlaybackError ? caught.message : toDisplayMessage(caught));
       window.requestAnimationFrame(() => errorRef.current?.focus());
     }
   }
