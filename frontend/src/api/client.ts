@@ -95,6 +95,8 @@ export function debugEvent(
   event: string,
   details: Record<string, boolean | number | string | undefined> = {},
 ): void {
+  // Browser diagnostics are opt-in through the DevTools console.
+  // eslint-disable-next-line no-console
   console.info('[spotify-quiz]', event, details);
 }
 
