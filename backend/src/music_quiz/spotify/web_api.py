@@ -26,16 +26,15 @@ class SpotifyWebCatalog:
 
     def __init__(self, access_token: Callable[[], str], *, timeout: float = 10.0) -> None:
         self._access_token = access_token
-        self._timeout = timeout
+        self._client = httpx.Client(timeout=timeout)
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            with httpx.Client(timeout=self._timeout) as client:
-                response = client.get(
-                    f"{API_BASE}{path}",
-                    params=params,
-                    headers={"Authorization": f"Bearer {self._access_token()}"},
-                )
+            response = self._client.get(
+                f"{API_BASE}{path}",
+                params=params,
+                headers={"Authorization": f"Bearer {self._access_token()}"},
+            )
         except httpx.HTTPError as exc:
             raise CatalogError(f"Could not reach Spotify: {type(exc).__name__}") from exc
         if response.status_code == 401:

@@ -138,16 +138,11 @@ export class SpotifyWebPlayback implements PlaybackPort {
         player.addListener('initialization_error', () => {
           reject(new PlaybackError('unsupported', 'This browser cannot play Spotify audio.'));
         });
-        void player
-          .connect()
-          .then(connected => {
-            if (!connected) {
-              reject(new PlaybackError('device', 'The Spotify player could not connect.'));
-            }
-          })
-          .catch(() => {
+        void player.connect().then(connected => {
+          if (!connected) {
             reject(new PlaybackError('device', 'The Spotify player could not connect.'));
-          });
+          }
+        });
       });
 
       this.player = player;

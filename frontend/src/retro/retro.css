@@ -48,7 +48,11 @@
   align-items: center;
   gap: 8px;
   padding: 5px 5px 5px 8px;
-  background: linear-gradient(90deg, var(--retro-title) 0%, var(--retro-title-end) 100%);
+  background: linear-gradient(
+    90deg,
+    var(--retro-title) 0%,
+    var(--retro-title-end) 100%
+  );
   color: var(--win-title-text);
 }
 
@@ -365,4 +369,149 @@
     right: 0;
     min-width: 220px;
   }
+}
+
+/* --- Taskbar -------------------------------------------------------- */
+
+.taskbar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-height: var(--taskbar-height);
+  padding: 3px 4px;
+  background: var(--retro-face);
+  border-top: 2px solid var(--retro-highlight);
+  box-shadow: 0 -2px 0 var(--retro-shadow);
+}
+
+.taskbar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Keeps every taskbar control at the 44px minimum target size. */
+  min-height: var(--retro-target);
+  min-width: var(--retro-target);
+  padding: 4px 10px;
+  background: var(--retro-face);
+  border: 2px outset var(--retro-face);
+  color: var(--win-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.taskbar-start {
+  position: relative;
+}
+
+.start-button {
+  font-weight: 700;
+}
+
+.start-button[aria-expanded='true'] {
+  border-style: inset;
+}
+
+.taskbar-tasks {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  border-left: 2px groove var(--retro-face);
+  padding-left: 6px;
+}
+
+.task-button {
+  max-width: 280px;
+}
+
+.task-button-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-button.is-active {
+  border-style: inset;
+  font-weight: 700;
+}
+
+.taskbar-tray {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 2px inset var(--retro-face);
+}
+
+.tray-clock {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Start menu ----------------------------------------------------- */
+
+.start-menu {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  display: flex;
+  min-width: 280px;
+  background: var(--retro-face);
+  border: 2px outset var(--retro-face);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.4);
+}
+
+.start-menu-spine {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 32px;
+  margin: 0;
+  padding: 10px 4px;
+  background: linear-gradient(
+    180deg,
+    var(--retro-title-end),
+    var(--retro-title)
+  );
+  color: var(--win-title-text);
+  font-weight: 700;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.start-menu ul {
+  flex: 1;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.start-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: var(--retro-target);
+  border: 2px solid transparent;
+  text-align: left;
+}
+
+.start-menu button:hover:not(:disabled),
+.start-menu button:focus-visible {
+  background: var(--retro-title);
+  color: var(--win-title-text);
+}
+
+.start-menu button:disabled {
+  color: var(--retro-shadow);
+  cursor: not-allowed;
+}
+
+/* A minimised window collapses to its taskbar button, like the real shell. */
+.retro-window.is-minimized {
+  display: none;
 }
