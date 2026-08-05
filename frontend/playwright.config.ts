@@ -59,7 +59,7 @@ export default defineConfig({
       env: {
         // Isolated database per run: E2E never mutates the developer database.
         DATABASE_PATH: '.data/e2e.db',
-        SPOTIFY_CLIENT_ID: 'e2e-client-id',
+        SPOTIFY_CLIENT_ID: '0123456789abcdef0123456789abcdef',
         SPOTIFY_REDIRECT_URI: `${BACKEND_URL}/api/v1/auth/callback`,
         FRONTEND_ORIGIN: FRONTEND_URL,
         ALLOW_LOCALHOST_ORIGIN: '0',

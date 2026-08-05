@@ -170,4 +170,4 @@ def test_status_endpoints_never_expose_the_client_id(api, path: str) -> None:
     response = client.get(path)
 
     assert response.status_code == 200
-    assert "test-client-id" not in response.text
+    assert "0123456789abcdef0123456789abcdef" not in response.text
