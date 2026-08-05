@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import secrets
-from pathlib import Path
 from uuid import UUID
 
 from dotenv import load_dotenv
@@ -11,9 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-# Load .env file
-load_dotenv()
-
 from music_quiz.auth import AuthState, authorization_url
 from music_quiz.auth_service import SpotifyAuthService, TokenRefreshError
 from music_quiz.domain.game import DomainError, ExcerptMode, GameConfig, GameStatus
@@ -21,6 +17,9 @@ from music_quiz.persistence.sqlite import SQLiteGameRepository
 from music_quiz.persistence.tokens import TokenRepository
 from music_quiz.services import QuizService
 from music_quiz.spotify.fake import FakeSpotifyCatalog
+
+# Load .env file
+load_dotenv()
 
 app = FastAPI(title="Spotify Music Quiz", version="0.1.0")
 frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:5173")
@@ -75,7 +74,7 @@ def payload(game: object, reveal: bool = False) -> dict[str, object]:
             "image_url": current.track.image_url,
         }
     if current and game.status in (GameStatus.PLAYING, GameStatus.PAUSED):
-        result["playback"] = {"uri": current.track.uri, "position_ms": current.excerpt_start_ms}
+        result["playback"] = {"position_ms": current.excerpt_start_ms}
     return result
 
 
@@ -109,27 +108,6 @@ def login() -> RedirectResponse:
     )
 
 
-@app.get("/api/v1/auth/callback")
-def callback(
-    code: str | None = None, state: str | None = None, error: str | None = None
-) -> RedirectResponse:
-    if not state or state not in auth_states:
-        raise HTTPException(400, "invalid OAuth state")
-    auth_state = auth_states[state]
-    del auth_states[state]
-    if error or not code:
-        raise HTTPException(400, "Spotify authorization was denied")
-
-    if not auth_service:
-        raise HTTPException(503, "Auth service not configured")
-
-    try:
-        redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback")
-        auth_service.exchange_code(code, redirect_uri, auth_state.verifier)
-        # Direct redirect to quiz
-        return RedirectResponse("http://localhost:5173/?authenticated=1")
-    except TokenRefreshError as exc:
-        raise HTTPException(500, f"Token exchange failed: {exc}") from exc
 def callback(
     code: str | None = None, state: str | None = None, error: str | None = None
 ) -> RedirectResponse:

@@ -4,7 +4,8 @@ Batch-Import: Excel → Spotify Playlist (Rate-Limit-Safe)
 Imports tracks in small batches with delays between batches
 """
 
-import os
+import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -14,9 +15,88 @@ import openpyxl
 import sqlite3
 
 
-BATCH_SIZE = 10  # Tracks per batch
-BATCH_DELAY = 5  # Seconds between batches
-SEARCH_DELAY = 0.6  # Seconds between individual searches
+BATCH_SIZE = 10  # Tracks per progress checkpoint
+BATCH_DELAY = 5  # Seconds between checkpoints
+MIN_REQUEST_INTERVAL = 1.0  # Conservative pacing for Spotify's rolling window
+MAX_RETRIES = 4
+CACHE_PATH = Path(".data/spotify-search-cache.json")
+
+
+class SpotifyClient:
+    """Shared client with pacing, bounded retries, and Retry-After handling."""
+
+    def __init__(self, token: str) -> None:
+        self._client = httpx.Client(
+            base_url="https://api.spotify.com/v1",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        self._next_request_at = 0.0
+
+    def close(self) -> None:
+        self._client.close()
+
+    def request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+        for attempt in range(MAX_RETRIES + 1):
+            wait = self._next_request_at - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self._next_request_at = time.monotonic() + MIN_REQUEST_INTERVAL
+
+            try:
+                response = self._client.request(method, path, **kwargs)
+            except httpx.RequestError:
+                if attempt == MAX_RETRIES:
+                    raise
+                time.sleep(min(30.0, 2**attempt) + random.uniform(0, 0.5))
+                continue
+
+            if response.status_code == 429:
+                retry_after = _retry_after_seconds(response)
+                if attempt == MAX_RETRIES:
+                    response.raise_for_status()
+                self._next_request_at = max(
+                    self._next_request_at, time.monotonic() + retry_after
+                )
+                print(f"   ⚠️  Rate limited. Waiting {retry_after:.0f}s before retry...")
+                continue
+
+            if response.status_code >= 500 and attempt < MAX_RETRIES:
+                time.sleep(min(30.0, 2**attempt) + random.uniform(0, 0.5))
+                continue
+
+            response.raise_for_status()
+            return response
+
+        raise RuntimeError("Spotify request exhausted retry budget")
+
+
+def _retry_after_seconds(response: httpx.Response) -> float:
+    try:
+        return max(1.0, float(response.headers.get("Retry-After", "60")))
+    except ValueError:
+        return 60.0
+
+
+def load_search_cache() -> dict[str, str | None]:
+    if not CACHE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(CACHE_PATH.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_search_cache(cache: dict[str, str | None]) -> None:
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = CACHE_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    temporary.replace(CACHE_PATH)
+
+
+def cache_key(artist: str, title: str, year: int | None) -> str:
+    return "|".join((artist.strip().casefold(), title.strip().casefold(), str(year or "")))
 
 
 def get_token():
@@ -57,75 +137,59 @@ def load_tracks_from_excel(file_path: str) -> list[dict]:
     return tracks
 
 
-def search_track(artist: str, title: str, year: int, token: str) -> str | None:
+def search_track(
+    artist: str,
+    title: str,
+    year: int | None,
+    spotify: SpotifyClient,
+    cache: dict[str, str | None],
+) -> str | None:
     """Search for track on Spotify and return URI"""
-    query = f"artist:{artist} track:{title} year:{year}"
+    key = cache_key(artist, title, year)
+    if key in cache:
+        return cache[key]
 
-    try:
-        time.sleep(SEARCH_DELAY)
+    query = f"artist:{artist} track:{title}"
+    if year:
+        query += f" year:{year}"
 
-        response = httpx.get(
-            "https://api.spotify.com/v1/search",
-            params={"q": query, "type": "track", "limit": 1},
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
-
-        if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", 60))
-            print(f"   ⚠️  Rate limited! Waiting {retry_after}s...")
-            time.sleep(retry_after)
-            return search_track(artist, title, year, token)  # Retry
-
-        response.raise_for_status()
-        data = response.json()
-
-        if data["tracks"]["items"]:
-            return data["tracks"]["items"][0]["uri"]
-
-        return None
-
-    except Exception as e:
-        print(f"   ⚠️  Search failed: {e}")
-        return None
-
-
-def get_user_id(token: str) -> str:
-    """Get current user's Spotify ID"""
-    response = httpx.get(
-        "https://api.spotify.com/v1/me",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
+    response = spotify.request(
+        "GET", "/search", params={"q": query, "type": "track", "limit": 1}
     )
-    response.raise_for_status()
+    items = response.json().get("tracks", {}).get("items", [])
+    uri = items[0].get("uri") if items else None
+    cache[key] = uri
+    save_search_cache(cache)
+    return uri
+
+
+def get_user_id(spotify: SpotifyClient) -> str:
+    """Get current user's Spotify ID"""
+    response = spotify.request("GET", "/me")
     return response.json()["id"]
 
 
-def create_playlist(user_id: str, name: str, description: str, token: str) -> str:
+def create_playlist(name: str, description: str, spotify: SpotifyClient) -> str:
     """Create a new private playlist"""
-    response = httpx.post(
-        f"https://api.spotify.com/v1/users/{user_id}/playlists",
+    response = spotify.request(
+        "POST",
+        "/me/playlists",
         json={
             "name": name,
             "description": description,
             "public": False,
         },
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
     )
-    response.raise_for_status()
     return response.json()["id"]
 
 
-def add_tracks_to_playlist(playlist_id: str, track_uris: list[str], token: str):
+def add_tracks_to_playlist(playlist_id: str, track_uris: list[str], spotify: SpotifyClient):
     """Add tracks to playlist (max 100 at a time)"""
-    response = httpx.post(
-        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+    spotify.request(
+        "POST",
+        f"/playlists/{playlist_id}/items",
         json={"uris": track_uris},
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
     )
-    response.raise_for_status()
 
 
 def main():
@@ -135,6 +199,8 @@ def main():
     print()
 
     token = get_token()
+    spotify = SpotifyClient(token)
+    cache = load_search_cache()
     print("✓ Access token loaded")
     print()
 
@@ -163,7 +229,7 @@ def main():
         batch_num = (i - 1) // BATCH_SIZE + 1
         print(f"[{i:3d}/{len(tracks)}] {track['artist']} - {track['title']} ({track['year']})...", end=" ", flush=True)
 
-        uri = search_track(track["artist"], track["title"], track["year"], token)
+        uri = search_track(track["artist"], track["title"], track["year"], spotify, cache)
 
         if uri:
             found_uris.append(uri)
@@ -193,12 +259,11 @@ def main():
 
     # Create playlist
     print("📝 Creating Spotify playlist...")
-    user_id = get_user_id(token)
+    user_id = get_user_id(spotify)
     playlist_id = create_playlist(
-        user_id,
         "Top 100 - 90er (Imported)",
         "Top 100 Tracks aus den 90ern - Weltweit, Deutschland, Frankfurt - Imported via Batch Script",
-        token,
+        spotify,
     )
     print(f"✓ Playlist created: {playlist_id}")
     print()
@@ -207,7 +272,7 @@ def main():
     print("📥 Adding tracks to playlist...")
     for i in range(0, len(found_uris), 100):
         chunk = found_uris[i:i + 100]
-        add_tracks_to_playlist(playlist_id, chunk, token)
+        add_tracks_to_playlist(playlist_id, chunk, spotify)
         print(f"   Added {min(i + 100, len(found_uris))}/{len(found_uris)} tracks")
 
     print()
@@ -216,6 +281,7 @@ def main():
     print(f"🎵 Playlist created with {len(found_uris)} tracks")
     print(f"🔗 https://open.spotify.com/playlist/{playlist_id}")
     print("=" * 60)
+    spotify.close()
 
 
 if __name__ == "__main__":

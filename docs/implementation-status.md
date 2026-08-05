@@ -20,6 +20,14 @@ Executed 2026-08-04 in this workspace:
 - `make build` — passed (Vite production build).
 - `make verify` — passed (format, lint, typecheck, tests, build).
 
+Executed 2026-08-05 for rate-limit hardening:
+
+- `python3 -m py_compile scripts/batch-import-playlist.py` — passed.
+- `.venv/bin/ruff check backend/src backend/tests` — passed.
+- `.venv/bin/mypy backend/src` — passed.
+- `.venv/bin/pytest backend/tests -q` — passed (16 tests).
+- No live Spotify request was made; import behavior remains manually unverified.
+
 **Phase 6 additions:**
 - SQLite persistence layer with migrations (`music_quiz/persistence/`)
 - Repository protocol and SQLite implementation
@@ -43,4 +51,3 @@ npm --prefix frontend run e2e
 - Live Spotify OAuth and Web Playback SDK verification are manual. The current browser adapter is deterministic fake playback for automated UI work; production SDK event wiring is documented in the live playback checklist but not yet implemented.
 - E2E tests assume backend is already running (not auto-started by Playwright).
 - Some E2E tests may timeout if backend is not running or if network latency is high.
-
