@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
+  debugEvent,
   toDisplayMessage,
   type ConfigStatus,
   type Game,
@@ -94,6 +95,12 @@ export function App() {
   const excerptElapsed = game?.status === 'playing' && remainingMs <= 0;
 
   useEffect(() => {
+    debugEvent('app_loaded', {
+      pathname: window.location.pathname,
+      query_keys: [...new URLSearchParams(window.location.search).keys()].join(
+        ',',
+      ),
+    });
     const id = window.setInterval(() => setClock(new Date()), 30_000);
     return () => window.clearInterval(id);
   }, []);
@@ -102,8 +109,20 @@ export function App() {
     const controller = new AbortController();
     api
       .config({ signal: controller.signal })
-      .then(setConfig)
-      .catch(() => setConfig(undefined));
+      .then((value) => {
+        debugEvent('config_loaded', {
+          spotify_client_id_configured: value.spotify_client_id_configured,
+          playback_implemented: value.playback_implemented,
+          problem_count: value.problems.length,
+        });
+        setConfig(value);
+      })
+      .catch((error: unknown) => {
+        debugEvent('config_failed', {
+          error: error instanceof Error ? error.name : 'unknown',
+        });
+        setConfig(undefined);
+      });
     return () => controller.abort();
   }, []);
 
@@ -113,8 +132,10 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     const failure = params.get('auth_error');
     if (params.get('authenticated') === '1') {
+      debugEvent('oauth_redirect', { authenticated: true });
       setAuthNotice('Spotify account connected.');
     } else if (failure) {
+      debugEvent('oauth_redirect', { authenticated: false, error: failure });
       setAuthNotice(
         AUTH_ERRORS[failure] ??
           'Spotify sign-in did not complete. Please try again.',
@@ -129,8 +150,19 @@ export function App() {
     const controller = new AbortController();
     api
       .authStatus({ signal: controller.signal })
-      .then((status) => setAuthenticated(status.authenticated))
-      .catch(() => setAuthenticated(false));
+      .then((status) => {
+        debugEvent('auth_status', {
+          authenticated: status.authenticated,
+          configured: status.configured,
+        });
+        setAuthenticated(status.authenticated);
+      })
+      .catch((error: unknown) => {
+        debugEvent('auth_status_failed', {
+          error: error instanceof Error ? error.name : 'unknown',
+        });
+        setAuthenticated(false);
+      });
     return () => controller.abort();
   }, [authNotice]);
 
@@ -1011,12 +1043,13 @@ export function App() {
         onClose={() => setDialog(undefined)}
       >
         <p>
-          Playlist import is not available yet. The quiz currently draws its
-          rounds from the demo catalogue on the server.
+          Spotify is connected, but this interface does not yet display a
+          playlist picker. The server can read Spotify playlists; this dialog
+          will be replaced by the picker when that UI is wired in.
         </p>
         <p className="hint">
-          Connect a Spotify account from the File menu to prepare for playlist
-          support.
+          Use the File menu to reconnect Spotify if the account status is not
+          shown as connected.
         </p>
       </RetroDialog>
 
