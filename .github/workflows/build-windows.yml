@@ -59,11 +59,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Rolling build for the Releases sidebar: every push to main rewrites the
+      # `latest` tag, replaces its assets and keeps it marked as "Latest".
       - name: Publish rolling "latest" release (main)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
+          target_commitish: ${{ github.sha }}
           name: Latest Windows Portable Build
           body: |
             Automatischer Windows-Portable-Build vom letzten Commit auf `main`.
@@ -71,6 +74,8 @@ jobs:
             - Commit: ${{ github.sha }}
             - Build: ${{ github.run_number }}
           files: build/spotify-quiz-portable-*.zip
+          # Otherwise every dated zip piles up on the same release.
+          clean_release_assets: true
           draft: false
           prerelease: false
           make_latest: true
