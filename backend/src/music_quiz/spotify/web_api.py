@@ -8,39 +8,73 @@ answer with the standard error envelope instead of a 500.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 import httpx
 
 API_BASE = "https://api.spotify.com/v1"
 PAGE_LIMIT = 50
-MAX_ITEMS = 500
+MAX_RETRIES = 2
 
 
 class CatalogError(Exception):
     """Raised when Spotify cannot be read."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class SpotifyWebCatalog:
     """Fetches the signed-in user's playlists and their tracks."""
 
-    def __init__(self, access_token: Callable[[], str], *, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        access_token: Callable[[], str],
+        *,
+        refresh_access_token: Callable[[], str] | None = None,
+        timeout: float = 10.0,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._access_token = access_token
+        self._refresh_access_token = refresh_access_token
+        self._sleep = sleep
         self._client = httpx.Client(timeout=timeout)
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        try:
-            response = self._client.get(
-                f"{API_BASE}{path}",
-                params=params,
-                headers={"Authorization": f"Bearer {self._access_token()}"},
-            )
-        except httpx.HTTPError as exc:
-            raise CatalogError(f"Could not reach Spotify: {type(exc).__name__}") from exc
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                response = self._client.get(
+                    f"{API_BASE}{path}",
+                    params=params,
+                    headers={"Authorization": f"Bearer {self._access_token()}"},
+                )
+            except httpx.HTTPError as exc:
+                raise CatalogError(f"Could not reach Spotify: {type(exc).__name__}") from exc
+
+            if response.status_code == 401 and self._refresh_access_token and attempt == 0:
+                self._refresh_access_token()
+                continue
+            if response.status_code == 429 and attempt < MAX_RETRIES:
+                self._sleep(_retry_after(response, attempt))
+                continue
+            if 500 <= response.status_code <= 599 and attempt < MAX_RETRIES:
+                self._sleep(_retry_after(response, attempt, fallback=2**attempt))
+                continue
+            break
+
         if response.status_code == 401:
-            raise CatalogError("Spotify rejected the stored session.")
+            raise CatalogError("Spotify rejected the stored session.", status_code=401)
+        if response.status_code == 403:
+            raise CatalogError("Spotify denied access to this resource.", status_code=403)
+        if response.status_code == 404:
+            raise CatalogError("Spotify resource was not found.", status_code=404)
         if response.status_code != 200:
-            raise CatalogError(f"Spotify request failed with {response.status_code}.")
+            raise CatalogError(
+                f"Spotify request failed with {response.status_code}.",
+                status_code=response.status_code,
+            )
         try:
             payload = response.json()
         except ValueError as exc:
@@ -52,7 +86,7 @@ class SpotifyWebCatalog:
     def playlists(self) -> list[dict[str, object]]:
         result: list[dict[str, object]] = []
         offset = 0
-        while offset < MAX_ITEMS:
+        while True:
             page = self._get("/me/playlists", {"limit": PAGE_LIMIT, "offset": offset})
             items = page.get("items")
             if not isinstance(items, list) or not items:
@@ -82,7 +116,7 @@ class SpotifyWebCatalog:
     def playlist_items(self, playlist_id: str) -> list[dict[str, object]]:
         result: list[dict[str, object]] = []
         offset = 0
-        while offset < MAX_ITEMS:
+        while True:
             page = self._get(
                 f"/playlists/{playlist_id}/tracks",
                 {
@@ -107,6 +141,15 @@ class SpotifyWebCatalog:
                 break
             offset += PAGE_LIMIT
         return result
+
+
+def _retry_after(response: httpx.Response, attempt: int, *, fallback: float = 1.0) -> float:
+    raw = response.headers.get("Retry-After")
+    try:
+        delay = float(raw) if raw is not None else fallback
+    except ValueError:
+        delay = fallback
+    return max(0.0, min(delay, 30.0))
 
 
 def _normalize(track: Any) -> dict[str, object] | None:

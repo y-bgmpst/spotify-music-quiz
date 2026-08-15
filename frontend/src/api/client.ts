@@ -47,6 +47,13 @@ export interface Game {
   playback?: { uri?: string; position_ms: number };
 }
 
+export interface SpotifyPlaylist {
+  id: string;
+  name: string;
+  owner: string;
+  total: number;
+}
+
 export interface AuthStatus {
   authenticated: boolean;
   configured: boolean;
@@ -172,6 +179,9 @@ export const api = {
   authStatus: (init?: RequestOptions) => request<AuthStatus>('/auth/status', init),
   loginUrl: () => `${baseUrl}/auth/login`,
   accessToken: (init?: RequestOptions) => request<AccessToken>('/auth/token', init),
+  logout: (init?: RequestOptions) =>
+    request<{ authenticated: boolean }>('/auth/logout', { ...init, method: 'POST' }),
+  playlists: (init?: RequestOptions) => request<SpotifyPlaylist[]>('/playlists', init),
   create: (body: Record<string, unknown>, init?: RequestOptions) =>
     request<Game>('/games', { ...init, method: 'POST', body }),
   get: (id: string, init?: RequestOptions) => request<Game>(`/games/${id}`, init),

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 CREATE TABLE IF NOT EXISTS oauth_states (
     state TEXT PRIMARY KEY,
     verifier TEXT NOT NULL,
+    session_hash TEXT,
     created_at TEXT NOT NULL
 );
 

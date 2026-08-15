@@ -29,8 +29,7 @@ def authorization_url(client_id: str, redirect_uri: str, auth: AuthState) -> str
         "code_challenge_method": "S256",
         "code_challenge": pkce_challenge(auth.verifier),
         "scope": "streaming user-read-private user-read-playback-state user-modify-playback-state "
-        "playlist-read-private playlist-read-collaborative "
-        "playlist-modify-private playlist-modify-public",
+        "playlist-read-private playlist-read-collaborative",
     }
     return "https://accounts.spotify.com/authorize?" + urlencode(params)
 

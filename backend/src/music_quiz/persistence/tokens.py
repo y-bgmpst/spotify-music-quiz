@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import sqlite3
 import time
@@ -28,6 +29,8 @@ class SpotifyToken:
 class TokenRepository:
     """SQLite repository for Spotify OAuth tokens."""
 
+    OAUTH_STATE_TTL_SECONDS = 10 * 60
+
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
         self._ensure_schema()
@@ -39,6 +42,9 @@ class TokenRepository:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(schema_path.read_text())
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(oauth_states)")}
+            if "session_hash" not in columns:
+                conn.execute("ALTER TABLE oauth_states ADD COLUMN session_hash TEXT")
 
     def save(self, token: SpotifyToken) -> None:
         """Save or update a token."""
@@ -134,27 +140,45 @@ class TokenRepository:
                 scope=row["scope"],
             )
 
-    def save_oauth_state(self, state: str, verifier: str) -> None:
-        """Persist a one-time PKCE verifier without exposing it to the browser."""
+    @staticmethod
+    def _session_hash(session_id: str) -> str:
+        return hashlib.sha256(session_id.encode()).hexdigest()
+
+    def save_oauth_state(self, state: str, verifier: str, session_id: str) -> None:
+        """Persist a one-time PKCE verifier bound to one opaque browser session."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO oauth_states (state, verifier, created_at) VALUES (?, ?, ?)",
-                (state, verifier, datetime.now(timezone.utc).isoformat()),
+                "INSERT INTO oauth_states (state, verifier, session_hash, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    state,
+                    verifier,
+                    self._session_hash(session_id),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
             )
             conn.commit()
 
-    def consume_oauth_state(self, state: str) -> str | None:
-        """Atomically read and consume an OAuth state value."""
+    def consume_oauth_state(self, state: str, session_id: str | None) -> str | None:
+        """Atomically consume a non-expired state only from its original session."""
+        if not session_id:
+            return None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT verifier FROM oauth_states WHERE state = ?", (state,)
+                "SELECT verifier, session_hash, created_at FROM oauth_states WHERE state = ?",
+                (state,),
             ).fetchone()
             if row is None:
                 conn.rollback()
                 return None
             conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
             conn.commit()
+            if not row[1] or not hmac.compare_digest(str(row[1]), self._session_hash(session_id)):
+                return None
+            created_at = datetime.fromisoformat(str(row[2])).timestamp()
+            if time.time() - created_at > self.OAUTH_STATE_TTL_SECONDS:
+                return None
             return str(row[0])
 
     def create_session(self, user_id: str = "default", max_age: int = 30 * 24 * 60 * 60) -> str:

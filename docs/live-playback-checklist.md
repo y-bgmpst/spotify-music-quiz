@@ -46,7 +46,7 @@ This checklist covers manual verification of Spotify Web Playback SDK integratio
 - [ ] Browser redirects to Spotify authorization page
 - [ ] Spotify shows app name and requested scopes
 - [ ] Click "Agree" to authorize
-- [ ] Browser redirects back to frontend with `?authenticated=1` parameter
+- [ ] Browser redirects back to frontend with `?auth_callback=success`; the UI then verifies `/api/v1/auth/status`
 - [ ] Frontend shows authenticated state (user indicator or playlist selection)
 - [ ] No errors in browser console during OAuth flow
 - [ ] Network tab shows successful token exchange

@@ -12,7 +12,7 @@ make e2e
 make build
 ```
 
-The backend tests cover queue determinism, normalization, excerpt boundaries, legal state transitions, scoring, and fake adapter pagination. The persistence tests cover SQLite CRUD operations, state restoration, and cascade deletion. Frontend tests cover concealment, reveal, repeated starts, and timer cleanup. Live Web Playback remains manual because it requires a Premium account and browser DRM support.
+The backend tests cover queue determinism, normalization, excerpt boundaries, legal state transitions, scoring, fake adapter pagination, and the complete mocked OAuth lifecycle: login state persistence, session-bound state consumption, cross-session rejection, one-time callback consumption, real token exchange against an HTTP mock, SQLite token persistence, session rotation and pre-auth invalidation, `/auth/status`, `/auth/token`, reload, and unusable-token failure. The persistence tests cover SQLite CRUD operations, state restoration, and cascade deletion. Frontend tests cover concealment, reveal, repeated starts, timer cleanup, deriving connected state from `/auth/status` rather than the callback query, and sanitized Web Playback SDK `not_ready`/`playback_error` handling. Live Web Playback remains manual because it requires a Premium account and browser DRM support.
 
 ## Running E2E Tests
 
@@ -26,8 +26,11 @@ E2E tests require both backend and frontend servers running:
 npm --prefix frontend run e2e
 ```
 
-The E2E test suite includes:
+The Playwright configuration starts the Vite frontend in explicit `VITE_FAKE_SPOTIFY=true` mode. Start the backend with `FAKE_SPOTIFY=true` before running it. The E2E test suite includes:
 - Complete game flow (create, play, pause, resume, reveal, next round, finish)
 - Answer concealment validation (metadata not leaked before reveal)
 - Accessibility audits (WCAG compliance, keyboard navigation, screen reader support)
+- OAuth callback success/failure derivation from the backend auth status
+- Real-mode playlist selection is covered structurally by the typed `/playlists` client and selected `playlist_id` request path; live Spotify data remains manual.
 
+The current automated gate is 24 Playwright tests and 6 frontend unit tests; live Spotify OAuth, playlist loading, SDK device lifecycle, and audio playback are not part of the credential-free gate. Spotify Web API hardening tests cover full pagination, bounded 401 refresh, 429 `Retry-After`, and 5xx backoff using HTTP mocks.
