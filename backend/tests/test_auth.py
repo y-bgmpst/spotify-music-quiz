@@ -73,5 +73,3 @@ def test_oauth_callback_is_registered_as_a_fastapi_route() -> None:
     assert any(
         route.path == "/api/v1/auth/callback" and "GET" in route.methods for route in app.routes
     )
-
-

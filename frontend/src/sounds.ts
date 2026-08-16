@@ -28,7 +28,8 @@ class SoundEffects {
     const Ctor =
       typeof window === 'undefined'
         ? undefined
-        : (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
+        : (window as unknown as { AudioContext?: typeof AudioContext })
+            .AudioContext;
     if (!Ctor) return null;
     try {
       this.audioContext = new Ctor();
@@ -52,7 +53,10 @@ class SoundEffects {
 
     const peak = Math.max(0.0001, volume * this.masterVolume);
     gainNode.gain.setValueAtTime(peak, ctx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    gainNode.gain.exponentialRampToValueAtTime(
+      0.001,
+      ctx.currentTime + duration,
+    );
 
     oscillator.start(ctx.currentTime);
     oscillator.stop(ctx.currentTime + duration);

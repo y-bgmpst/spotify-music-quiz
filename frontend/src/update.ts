@@ -38,8 +38,12 @@ export function isNewerVersion(current: string, latest: string): boolean {
   const length = Math.max(currentParts.length, latestParts.length);
 
   for (let index = 0; index < length; index += 1) {
-    const currentPart = Number.isFinite(currentParts[index]) ? (currentParts[index] as number) : 0;
-    const latestPart = Number.isFinite(latestParts[index]) ? (latestParts[index] as number) : 0;
+    const currentPart = Number.isFinite(currentParts[index])
+      ? (currentParts[index] as number)
+      : 0;
+    const latestPart = Number.isFinite(latestParts[index])
+      ? (latestParts[index] as number)
+      : 0;
     if (latestPart !== currentPart) return latestPart > currentPart;
   }
   return false;

@@ -25,8 +25,13 @@ interface ToolbarProps {
  */
 export function Toolbar({ actions }: ToolbarProps) {
   return (
-    <div className="retro-toolbar" role="toolbar" aria-label="Quiz controls" aria-orientation="horizontal">
-      {actions.map(action => (
+    <div
+      className="retro-toolbar"
+      role="toolbar"
+      aria-label="Quiz controls"
+      aria-orientation="horizontal"
+    >
+      {actions.map((action) => (
         <button
           key={action.id}
           type="button"

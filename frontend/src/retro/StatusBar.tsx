@@ -15,7 +15,13 @@ export interface StatusBarProps {
  * Only the connection cell is inside the live region: the countdown ticks
  * every fraction of a second and would otherwise flood a screen reader.
  */
-export function StatusBar({ connection, connectionIcon, round, players, clock }: StatusBarProps) {
+export function StatusBar({
+  connection,
+  connectionIcon,
+  round,
+  players,
+  clock,
+}: StatusBarProps) {
   return (
     <div className="retro-statusbar">
       <p className="retro-status-cell retro-status-primary" aria-live="polite">

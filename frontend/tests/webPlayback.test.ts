@@ -24,7 +24,10 @@ function createSdkPlayer() {
 }
 
 function createPlayback(
-  options: { onError?: (message: string) => void; fetchImpl?: typeof fetch } = {},
+  options: {
+    onError?: (message: string) => void;
+    fetchImpl?: typeof fetch;
+  } = {},
 ) {
   const sdkPlayer = createSdkPlayer();
   const Player = vi.fn(function Player() {
@@ -32,7 +35,8 @@ function createPlayback(
   });
   const loadSdk = vi.fn(async () => ({ Player }));
   const fetchImpl =
-    options.fetchImpl ?? (vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch);
+    options.fetchImpl ??
+    (vi.fn(async () => new Response(null, { status: 204 })) as typeof fetch);
   const playback = new SpotifyWebPlayback({
     getToken: vi.fn(async () => 'test-token'),
     loadSdk,
@@ -40,12 +44,19 @@ function createPlayback(
     onError: options.onError ?? vi.fn(),
     connectTimeoutMs: 100,
   });
-  return { playback, sdkPlayer, fetchImpl: fetchImpl as ReturnType<typeof vi.fn> };
+  return {
+    playback,
+    sdkPlayer,
+    fetchImpl: fetchImpl as ReturnType<typeof vi.fn>,
+  };
 }
 
 const TARGET = { uri: 'spotify:track:test', position_ms: 0 };
 
-async function readyNow(sdkPlayer: ReturnType<typeof createSdkPlayer>, deviceId = 'device-test') {
+async function readyNow(
+  sdkPlayer: ReturnType<typeof createSdkPlayer>,
+  deviceId = 'device-test',
+) {
   await Promise.resolve();
   sdkPlayer.emit('ready', { device_id: deviceId });
 }
@@ -54,12 +65,18 @@ describe('SpotifyWebPlayback', () => {
   it('connects a device and asks Spotify to play the requested uri', async () => {
     const { playback, sdkPlayer, fetchImpl } = createPlayback();
 
-    const connection = playback.start({ uri: 'spotify:track:xyz', position_ms: 4200 });
+    const connection = playback.start({
+      uri: 'spotify:track:xyz',
+      position_ms: 4200,
+    });
     await readyNow(sdkPlayer, 'device-1');
     await connection;
 
     expect(playback.device).toBe('device-1');
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toContain('device_id=device-1');
     expect(init.method).toBe('PUT');
     expect(JSON.parse(String(init.body))).toEqual({
@@ -133,7 +150,9 @@ describe('SpotifyWebPlayback', () => {
     sdkPlayer.emit('not_ready');
 
     expect(playback.device).toBeUndefined();
-    expect(onError).toHaveBeenCalledWith('The Spotify playback device is unavailable.');
+    expect(onError).toHaveBeenCalledWith(
+      'The Spotify playback device is unavailable.',
+    );
   });
 
   it('playback_error reaches the application as a sanitized error', async () => {

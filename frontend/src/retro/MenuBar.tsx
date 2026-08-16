@@ -33,17 +33,14 @@ export function MenuBar({ menus }: MenuBarProps) {
   const triggerRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const close = useCallback(
-    (restoreFocus = true) => {
-      setOpenIndex(current => {
-        if (current !== null && restoreFocus) {
-          triggerRefs.current[current]?.focus();
-        }
-        return null;
-      });
-    },
-    [],
-  );
+  const close = useCallback((restoreFocus = true) => {
+    setOpenIndex((current) => {
+      if (current !== null && restoreFocus) {
+        triggerRefs.current[current]?.focus();
+      }
+      return null;
+    });
+  }, []);
 
   useEffect(() => {
     if (openIndex === null) return;
@@ -65,7 +62,7 @@ export function MenuBar({ menus }: MenuBarProps) {
   function focusTrigger(index: number) {
     const next = (index + menus.length) % menus.length;
     triggerRefs.current[next]?.focus();
-    setOpenIndex(current => (current === null ? null : next));
+    setOpenIndex((current) => (current === null ? null : next));
   }
 
   function onTriggerKeyDown(event: React.KeyboardEvent, index: number) {
@@ -75,7 +72,11 @@ export function MenuBar({ menus }: MenuBarProps) {
     } else if (event.key === 'ArrowLeft') {
       event.preventDefault();
       focusTrigger(index - 1);
-    } else if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+    } else if (
+      event.key === 'ArrowDown' ||
+      event.key === 'Enter' ||
+      event.key === ' '
+    ) {
       event.preventDefault();
       setOpenIndex(index);
     } else if (event.key === 'Escape') {
@@ -83,7 +84,11 @@ export function MenuBar({ menus }: MenuBarProps) {
     }
   }
 
-  function onItemKeyDown(event: React.KeyboardEvent, itemIndex: number, menuIndex: number) {
+  function onItemKeyDown(
+    event: React.KeyboardEvent,
+    itemIndex: number,
+    menuIndex: number,
+  ) {
     const items = itemRefs.current.filter(Boolean) as HTMLButtonElement[];
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -122,40 +127,56 @@ export function MenuBar({ menus }: MenuBarProps) {
             <button
               type="button"
               className="retro-menu-trigger"
-              ref={element => {
+              ref={(element) => {
                 triggerRefs.current[menuIndex] = element;
               }}
               aria-haspopup="menu"
               aria-expanded={open}
               aria-controls={open ? menuId : undefined}
               onClick={() => setOpenIndex(open ? null : menuIndex)}
-              onKeyDown={event => onTriggerKeyDown(event, menuIndex)}
+              onKeyDown={(event) => onTriggerKeyDown(event, menuIndex)}
             >
               {menu.label}
             </button>
             {open && (
-              <ul className="retro-menu-list" id={menuId} role="menu" aria-label={menu.label}>
+              <ul
+                className="retro-menu-list"
+                id={menuId}
+                role="menu"
+                aria-label={menu.label}
+              >
                 {menu.items.map((item, itemIndex) => (
                   <li key={item.label} role="none">
                     <button
                       type="button"
-                      role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                      role={
+                        item.checked === undefined
+                          ? 'menuitem'
+                          : 'menuitemcheckbox'
+                      }
                       aria-checked={item.checked}
                       aria-disabled={item.disabled || undefined}
                       className="retro-menu-item"
-                      ref={element => {
+                      ref={(element) => {
                         itemRefs.current[itemIndex] = element;
                       }}
-                      onKeyDown={event => onItemKeyDown(event, itemIndex, menuIndex)}
+                      onKeyDown={(event) =>
+                        onItemKeyDown(event, itemIndex, menuIndex)
+                      }
                       onClick={() => {
                         if (item.disabled) return;
                         close();
                         item.onSelect?.();
                       }}
                     >
-                      <span className="retro-menu-item-label">{item.label}</span>
+                      <span className="retro-menu-item-label">
+                        {item.label}
+                      </span>
                       {item.hint && (
-                        <span className="retro-menu-item-hint" aria-hidden="true">
+                        <span
+                          className="retro-menu-item-hint"
+                          aria-hidden="true"
+                        >
                           {item.hint}
                         </span>
                       )}

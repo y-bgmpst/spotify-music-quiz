@@ -62,7 +62,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** Band-limited noise buffer standing in for the carrier hiss. */
-function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer | undefined {
+function createNoiseBuffer(
+  ctx: AudioContext,
+  seconds: number,
+): AudioBuffer | undefined {
   if (typeof ctx.createBuffer !== 'function') return undefined;
   const frames = Math.max(1, Math.floor(ctx.sampleRate * seconds));
   const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
@@ -77,9 +80,15 @@ function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer | un
  * Plays a short handshake: two dial tones, a warble, then carrier noise that
  * fades out. Resolves when the sound finished, was skipped, or could not run.
  */
-export async function playDialUpEffect(options: DialUpEffectOptions): Promise<void> {
+export async function playDialUpEffect(
+  options: DialUpEffectOptions,
+): Promise<void> {
   const volume = clamp(options.volume, 0, 1);
-  const durationMs = clamp(options.durationMs ?? DEFAULT_DURATION_MS, MIN_DURATION_MS, MAX_DURATION_MS);
+  const durationMs = clamp(
+    options.durationMs ?? DEFAULT_DURATION_MS,
+    MIN_DURATION_MS,
+    MAX_DURATION_MS,
+  );
 
   if (options.signal?.aborted) return;
   if (volume === 0) return;
@@ -132,7 +141,10 @@ export async function playDialUpEffect(options: DialUpEffectOptions): Promise<vo
       osc.frequency.setValueAtTime(tone.freq, now + tone.at);
       gain.gain.setValueAtTime(0.0001, now + tone.at);
       gain.gain.linearRampToValueAtTime(0.5, now + tone.at + 0.02);
-      gain.gain.linearRampToValueAtTime(0.0001, now + Math.min(seconds, tone.at + tone.length));
+      gain.gain.linearRampToValueAtTime(
+        0.0001,
+        now + Math.min(seconds, tone.at + tone.length),
+      );
       osc.connect(gain);
       gain.connect(master);
       osc.start(now + tone.at);
@@ -193,7 +205,7 @@ export async function playDialUpEffect(options: DialUpEffectOptions): Promise<vo
 }
 
 function waitFor(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (signal.aborted) {
       resolve();
       return;
