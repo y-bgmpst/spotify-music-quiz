@@ -8,14 +8,17 @@ answer with the standard error envelope instead of a 500.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Callable
+from urllib.parse import quote
 
 import httpx
 
 API_BASE = "https://api.spotify.com/v1"
 PAGE_LIMIT = 50
 MAX_RETRIES = 2
+PLAYLIST_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{22}$")
 
 
 class CatalogError(Exception):
@@ -139,7 +142,7 @@ class SpotifyWebCatalog:
         excerpt_ms = excerpt_seconds * 1000
         while True:
             page = self._get(
-                f"/playlists/{playlist_id}/items",
+                _playlist_items_path(playlist_id),
                 {
                     "limit": PAGE_LIMIT,
                     "offset": offset,
@@ -187,7 +190,7 @@ class SpotifyWebCatalog:
         offset = 0
         while True:
             page = self._get(
-                f"/playlists/{playlist_id}/items",
+                _playlist_items_path(playlist_id),
                 {
                     "limit": PAGE_LIMIT,
                     "offset": offset,
@@ -219,6 +222,12 @@ def _retry_after(response: httpx.Response, attempt: int, *, fallback: float = 1.
     except ValueError:
         delay = fallback
     return max(0.0, min(delay, 30.0))
+
+
+def _playlist_items_path(playlist_id: str) -> str:
+    if PLAYLIST_ID_PATTERN.fullmatch(playlist_id) is None:
+        raise CatalogError("Spotify playlist id is invalid.", status_code=400)
+    return f"/playlists/{quote(playlist_id, safe='')}/items"
 
 
 def _track_from_playlist_item(item: Any) -> Any:

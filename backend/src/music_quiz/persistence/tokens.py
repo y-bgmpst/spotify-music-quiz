@@ -5,9 +5,11 @@ import hmac
 import secrets
 import sqlite3
 import time
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 
 @dataclass
@@ -35,11 +37,16 @@ class TokenRepository:
         self.db_path = db_path
         self._ensure_schema()
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            yield conn
+
     def _ensure_schema(self) -> None:
         """Ensure auth_tokens table exists."""
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         schema_path = Path(__file__).parent / "schema.sql"
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(schema_path.read_text())
             columns = {row[1] for row in conn.execute("PRAGMA table_info(oauth_states)")}
@@ -49,7 +56,7 @@ class TokenRepository:
     def save(self, token: SpotifyToken) -> None:
         """Save or update a token."""
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
 
             # Check if token exists
@@ -94,7 +101,7 @@ class TokenRepository:
 
     def get(self, user_id: str) -> SpotifyToken | None:
         """Retrieve token by user_id. Returns None if not found."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -115,13 +122,13 @@ class TokenRepository:
 
     def delete(self, user_id: str) -> None:
         """Delete a token."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute("DELETE FROM auth_tokens WHERE user_id = ?", (user_id,))
             conn.commit()
 
     def get_default(self) -> SpotifyToken | None:
         """Get the most recently updated token (for single-user apps)."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -146,7 +153,7 @@ class TokenRepository:
 
     def save_oauth_state(self, state: str, verifier: str, session_id: str) -> None:
         """Persist a one-time PKCE verifier bound to one opaque browser session."""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute(
                 "INSERT INTO oauth_states (state, verifier, session_hash, created_at) "
                 "VALUES (?, ?, ?, ?)",
@@ -163,7 +170,7 @@ class TokenRepository:
         """Atomically consume a non-expired state only from its original session."""
         if not state or not session_id:
             return None
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT verifier, session_hash, created_at FROM oauth_states WHERE state = ?",
@@ -187,7 +194,7 @@ class TokenRepository:
     def clear_oauth_states(self, session_id: str | None) -> None:
         if not session_id:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute(
                 "DELETE FROM oauth_states WHERE session_hash = ?",
                 (self._session_hash(session_id),),
@@ -199,7 +206,7 @@ class TokenRepository:
         session_id = secrets.token_urlsafe(32)
         session_hash = hashlib.sha256(session_id.encode()).hexdigest()
         now = int(time.time())
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connection() as conn:
             conn.execute(
                 "INSERT INTO auth_sessions (session_hash, user_id, created_at, expires_at) "
                 "VALUES (?, ?, ?, ?)",

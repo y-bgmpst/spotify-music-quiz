@@ -52,6 +52,8 @@ def test_expired_oauth_state_is_rejected() -> None:
                 "VALUES (?, ?, ?, ?)",
                 ("expired-state", "verifier", repo._session_hash("session"), expired),
             )
+            conn.commit()
+        conn.close()
         assert repo.consume_oauth_state("expired-state", "session") is None
     finally:
         Path(db_path).unlink(missing_ok=True)

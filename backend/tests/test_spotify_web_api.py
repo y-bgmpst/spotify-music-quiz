@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
-from music_quiz.spotify.web_api import SpotifyWebCatalog
+from music_quiz.spotify.web_api import CatalogError, SpotifyWebCatalog
+
+PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 
 
 def catalog_with(responses: list[httpx.Response], **kwargs: object) -> SpotifyWebCatalog:
@@ -35,7 +38,7 @@ def test_playlist_items_follow_all_pages_without_a_500_item_cap() -> None:
     responses = [page(index, index < 501) for index in range(0, 502)]
     catalog = catalog_with(responses)
 
-    items = catalog.playlist_items("playlist")
+    items = catalog.playlist_items(PLAYLIST_ID)
 
     assert len(items) == 502
 
@@ -59,7 +62,7 @@ def test_playlist_items_support_current_items_response_shape() -> None:
         },
     )
 
-    assert catalog_with([response]).playlist_items("playlist")[0]["uri"] == (
+    assert catalog_with([response]).playlist_items(PLAYLIST_ID)[0]["uri"] == (
         "spotify:track:current"
     )
 
@@ -84,7 +87,7 @@ def test_playlist_items_skip_tracks_spotify_marks_unplayable() -> None:
         },
     )
 
-    assert catalog_with([response]).playlist_items("playlist") == []
+    assert catalog_with([response]).playlist_items(PLAYLIST_ID) == []
 
 
 def test_429_respects_retry_after_and_is_bounded() -> None:
@@ -95,7 +98,7 @@ def test_429_respects_retry_after_and_is_bounded() -> None:
         sleep=delays.append,
     )
 
-    assert catalog.playlist_items("playlist") == []
+    assert catalog.playlist_items(PLAYLIST_ID) == []
     assert delays == [3.0, 3.0]
 
 
@@ -107,7 +110,7 @@ def test_5xx_retry_uses_bounded_backoff_and_returns_catalog_error() -> None:
     )
 
     try:
-        catalog.playlist_items("playlist")
+        catalog.playlist_items(PLAYLIST_ID)
     except Exception as exc:
         assert type(exc).__name__ == "CatalogError"
         assert "503" in str(exc)
@@ -126,7 +129,7 @@ def test_401_refreshes_once_before_retrying() -> None:
         refresh_access_token=lambda: refreshed.append(True) or "new-token",
     )
 
-    assert catalog.playlist_items("playlist") == []
+    assert catalog.playlist_items(PLAYLIST_ID) == []
     assert refreshed == [True]
 
 
@@ -160,3 +163,10 @@ def test_playlists_map_current_items_count_and_cover() -> None:
             "image_url": "https://example.test/cover.jpg",
         }
     ]
+
+
+def test_playlist_id_is_validated_before_building_spotify_url() -> None:
+    catalog = catalog_with([])
+
+    with pytest.raises(CatalogError, match="playlist id is invalid"):
+        catalog.playlist_items("https://attacker.example")
