@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
+  ApiError,
   toDisplayMessage,
   type ConfigStatus,
   type Game,
+  type PlaylistAnalysis,
   type RoundCommand,
+  type SpotifyPlaylist,
 } from './api/client';
 import {
   PLAYBACK_READY_NOTICE,
@@ -37,27 +40,53 @@ import {
 import { playDialUpEffect, stopDialUpEffect } from './audio/dialUpEffect';
 
 const TIME_LIMIT_OPTIONS = [
-  { value: 300, label: '5 minutes' },
-  { value: 600, label: '10 minutes' },
-  { value: 0, label: 'No limit' },
+  { value: 300, label: '5 Minuten' },
+  { value: 600, label: '10 Minuten' },
+  { value: 0, label: 'Keine Begrenzung' },
 ] as const;
 
-const WINDOW_TITLE = 'Spotify Music Quiz — Netscape Navigator';
+const WINDOW_TITLE = 'Back to the 90s – Amt 16 Musikquiz';
+
+const STATUS_LABELS: Record<Game['status'], string> = {
+  ready: 'bereit',
+  playing: 'läuft',
+  paused: 'pausiert',
+  revealed: 'aufgedeckt',
+  finished: 'beendet',
+};
 
 type DialogName = 'audio' | 'shortcuts' | 'about' | 'import' | 'exit';
 
+const DISPLAY_CHANNEL = 'spotify-music-quiz-display';
+const DISPLAY_STATE_KEY = 'spotify-music-quiz-display-state';
+
+type DisplayState = Pick<
+  Game,
+  | 'id'
+  | 'status'
+  | 'round_number'
+  | 'rounds'
+  | 'excerpt_seconds'
+  | 'excerpt_remaining_ms'
+  | 'excerpt_deadline_ms'
+  | 'answer'
+>;
+
 /** Messages for the `auth_error` codes the backend redirects with. */
 const AUTH_ERRORS: Record<string, string> = {
-  denied: 'Spotify sign-in was cancelled.',
-  invalid_state: 'That sign-in link expired. Please connect Spotify again.',
+  denied: 'Die Spotify-Anmeldung wurde abgebrochen.',
+  invalid_state:
+    'Der Anmeldelink ist abgelaufen. Bitte Spotify erneut verbinden.',
   missing_code:
-    'Spotify did not return an authorization code. Please try again.',
-  not_configured: 'Spotify is not configured on this server.',
-  exchange_failed: 'Spotify refused the sign-in. Please try again.',
-  unexpected: 'Spotify sign-in failed unexpectedly. Please try again.',
+    'Spotify hat keinen Autorisierungscode zurückgegeben. Bitte erneut versuchen.',
+  not_configured: 'Spotify ist auf diesem Server nicht eingerichtet.',
+  exchange_failed:
+    'Spotify hat die Anmeldung abgelehnt. Bitte erneut versuchen.',
+  unexpected:
+    'Die Spotify-Anmeldung ist unerwartet fehlgeschlagen. Bitte erneut versuchen.',
 };
 
-export function App() {
+function HostApp() {
   const [game, setGame] = useState<Game | undefined>();
   const [config, setConfig] = useState<ConfigStatus | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -79,6 +108,16 @@ export function App() {
 
   const [authenticated, setAuthenticated] = useState(false);
   const [authNotice, setAuthNotice] = useState<string | undefined>();
+  const [playbackTest, setPlaybackTest] = useState<string | undefined>();
+  const [authGeneration, setAuthGeneration] = useState(0);
+  const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [playlistsError, setPlaylistsError] = useState<string | undefined>();
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>();
+  const [analysis, setAnalysis] = useState<PlaylistAnalysis>();
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | undefined>();
+  const playlistRequest = useRef<Promise<void> | undefined>(undefined);
 
   const playback = useRef<PlaybackPort>(new StubPlayback());
   const errorRef = useRef<HTMLDivElement>(null);
@@ -92,6 +131,39 @@ export function App() {
     game?.status === 'playing',
   );
   const excerptElapsed = game?.status === 'playing' && remainingMs <= 0;
+
+  useEffect(() => {
+    const state: DisplayState | null = game
+      ? {
+          id: game.id,
+          status: game.status,
+          round_number: game.round_number,
+          rounds: game.rounds,
+          excerpt_seconds: game.excerpt_seconds,
+          excerpt_remaining_ms: game.excerpt_remaining_ms,
+          excerpt_deadline_ms: game.excerpt_deadline_ms,
+          answer: game.answer,
+        }
+      : null;
+    const storage = window.localStorage;
+    if (storage) {
+      if (state) storage.setItem(DISPLAY_STATE_KEY, JSON.stringify(state));
+      else storage.removeItem(DISPLAY_STATE_KEY);
+    }
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(DISPLAY_CHANNEL);
+      channel.postMessage(state);
+      channel.close();
+    }
+  }, [game]);
+
+  useEffect(() => {
+    if (!excerptElapsed) return;
+    // The backend remains authoritative for the round state; the browser
+    // player must nevertheless stop as soon as the local interpolation of
+    // that server deadline reaches zero.
+    void playback.current.pause();
+  }, [excerptElapsed, game?.id, game?.round_number]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 30_000);
@@ -112,15 +184,20 @@ export function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const failure = params.get('auth_error');
-    if (params.get('authenticated') === '1') {
-      setAuthNotice('Spotify account connected.');
+    const success =
+      params.get('auth_callback') === 'success' ||
+      params.get('authenticated') === '1';
+    if (success) {
+      setAuthNotice('Spotify-Konto verbunden.');
+      setError(undefined);
+      setAuthGeneration((generation) => generation + 1);
     } else if (failure) {
       setAuthNotice(
         AUTH_ERRORS[failure] ??
-          'Spotify sign-in did not complete. Please try again.',
+          'Die Spotify-Anmeldung wurde nicht abgeschlossen. Bitte erneut versuchen.',
       );
     }
-    if (failure || params.get('authenticated')) {
+    if (failure || success) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -144,7 +221,7 @@ export function App() {
           volume: audioVolumeRef.current,
         })
       : new StubPlayback();
-  }, [authenticated]);
+  }, [authGeneration, authenticated]);
 
   useEffect(() => {
     return () => {
@@ -184,6 +261,122 @@ export function App() {
     .map((name) => name.trim())
     .filter(Boolean);
 
+  const selectedPlaylist = playlists.find(
+    (playlist) => playlist.id === selectedPlaylistId,
+  );
+  const canContinueWithPlaylist = Boolean(
+    selectedPlaylist && analysis && analysis.eligible_unique_tracks > 0,
+  );
+
+  function playlistErrorMessage(caught: unknown, action: string) {
+    if (caught instanceof ApiError) {
+      if (
+        caught.status === 401 ||
+        caught.code === 'spotify_not_authenticated'
+      ) {
+        return 'Spotify ist nicht mehr verbunden. Verbinde Spotify erneut und versuche es wieder.';
+      }
+      if (caught.status === 403)
+        return 'Spotify hat den Zugriff auf diese Playlist verweigert.';
+      if (caught.status === 404)
+        return 'Diese Playlist ist nicht mehr verfügbar.';
+      if (caught.status === 429)
+        return 'Spotify begrenzt gerade die Anfragen. Bitte gleich erneut versuchen.';
+      if (caught.status && caught.status >= 500) {
+        return `Der Server konnte die Playlist-${action === 'list' ? 'liste' : 'analyse'} nicht laden. Bitte erneut versuchen.`;
+      }
+      if (caught.kind === 'network' || caught.kind === 'timeout') {
+        return 'Der Quizserver ist nicht erreichbar. Prüfe die Verbindung und versuche es erneut.';
+      }
+    }
+    return `Die Playlist-${action === 'list' ? 'liste' : 'analyse'} ist fehlgeschlagen. Bitte erneut versuchen.`;
+  }
+
+  const loadPlaylists = useCallback(async () => {
+    if (playlistRequest.current) return playlistRequest.current;
+    setPlaylistsLoading(true);
+    setPlaylistsError(undefined);
+    const request = api
+      .playlists()
+      .then(setPlaylists)
+      .catch((caught: unknown) =>
+        setPlaylistsError(playlistErrorMessage(caught, 'list')),
+      )
+      .finally(() => {
+        playlistRequest.current = undefined;
+        setPlaylistsLoading(false);
+      });
+    playlistRequest.current = request;
+    return request;
+  }, []);
+
+  useEffect(() => {
+    if (dialog === 'import' && authenticated && playlists.length === 0) {
+      void loadPlaylists();
+    }
+  }, [authenticated, dialog, loadPlaylists, playlists.length]);
+
+  async function analyzeSelectedPlaylist() {
+    if (!selectedPlaylistId) return;
+    setAnalysisLoading(true);
+    setAnalysisError(undefined);
+    try {
+      setAnalysis(
+        await api.playlistAnalysis(selectedPlaylistId, excerptSeconds, 'intro'),
+      );
+    } catch (caught) {
+      setAnalysis(undefined);
+      setAnalysisError(playlistErrorMessage(caught, 'analysis'));
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }
+
+  function selectPlaylist(id: string) {
+    setSelectedPlaylistId(id);
+    setAnalysis(undefined);
+    setAnalysisError(undefined);
+  }
+
+  async function logoutSpotify() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.logout();
+      await playback.current.stop();
+      playback.current = new StubPlayback();
+      setAuthenticated(false);
+      setAuthGeneration((generation) => generation + 1);
+      setAuthNotice('Spotify-Konto getrennt.');
+      setPlaybackTest(undefined);
+      setPlaylists([]);
+      setSelectedPlaylistId(undefined);
+      setAnalysis(undefined);
+      setGame(undefined);
+    } catch (caught) {
+      setError(toDisplayMessage(caught));
+      window.requestAnimationFrame(() => errorRef.current?.focus());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testSpotifyPlayer() {
+    setPlaybackTest('Spotify-Player-Verbindung wird getestet…');
+    try {
+      await playback.current.testConnection();
+      setPlaybackTest(
+        'Spotify-Player ist bereit. Klicke auf „Start“, um Audio zu testen.',
+      );
+    } catch (caught) {
+      setPlaybackTest(
+        caught instanceof PlaybackError
+          ? caught.message
+          : 'Die Spotify-Player-Verbindung konnte nicht hergestellt werden.',
+      );
+    }
+  }
+
   function stopHandshake() {
     stopDialUpEffect();
     setHandshaking(false);
@@ -201,7 +394,14 @@ export function App() {
   async function createGame(event: React.FormEvent) {
     event.preventDefault();
     if (participantNames.length === 0) {
-      setError('Add at least one team name before starting.');
+      setError('Gib vor dem Start mindestens ein Team an.');
+      errorRef.current?.focus();
+      return;
+    }
+    if (authenticated && !canContinueWithPlaylist) {
+      setError(
+        'Wähle vor dem Start eine Spotify-Playlist aus und analysiere sie.',
+      );
       errorRef.current?.focus();
       return;
     }
@@ -213,6 +413,7 @@ export function App() {
         mode: 'intro',
         participants: participantNames,
         time_limit_seconds: timeLimit === 0 ? null : timeLimit,
+        playlist_id: selectedPlaylistId,
       }),
     );
   }
@@ -234,11 +435,11 @@ export function App() {
       if (command === 'resume') await playback.current.resume();
       if (command === 'reveal') {
         sounds.reveal();
-        await playback.current.stop();
+        await playback.current.pause();
       }
       if (command === 'next') {
         sounds.next();
-        await playback.current.stop();
+        await playback.current.pause();
       }
     } catch (caught) {
       // Playback problems never abort the round: the host can still keep time
@@ -246,7 +447,7 @@ export function App() {
       setError(
         caught instanceof PlaybackError
           ? caught.message
-          : 'Spotify playback failed. The round continues without audio.',
+          : 'Spotify-Wiedergabe fehlgeschlagen. Die Runde läuft ohne Audio weiter.',
       );
       window.requestAnimationFrame(() => errorRef.current?.focus());
     }
@@ -283,7 +484,7 @@ export function App() {
     game?.score_events.filter((event) => !event.reversed) ?? [];
   const nameOf = (participantId: string) =>
     game?.participants.find((p) => p.id === participantId)?.name ??
-    'Unknown team';
+    'Unbekanntes Team';
 
   const menus: Menu[] = useMemo(
     () => [
@@ -291,32 +492,47 @@ export function App() {
         label: 'File',
         items: [
           {
-            label: 'Import playlist…',
+            label: 'Spotify-Playlist auswählen…',
             onSelect: () => setDialog('import'),
           },
           {
-            label: 'Connect Spotify account',
+            label: 'Beamer-Ansicht öffnen',
+            onSelect: () => {
+              window.open(
+                `${window.location.pathname}?view=display`,
+                'spotify-music-quiz-display',
+                'popup,width=1280,height=720',
+              );
+            },
+          },
+          {
+            label: 'Spotify-Konto verbinden',
             onSelect: () => {
               window.location.href = api.loginUrl();
             },
           },
           {
-            label: 'Exit quiz',
+            label: 'Von Spotify abmelden',
+            disabled: !authenticated || busy,
+            onSelect: () => void logoutSpotify(),
+          },
+          {
+            label: 'Quiz beenden',
             disabled: !game,
             onSelect: () => setDialog('exit'),
           },
         ],
       },
       {
-        label: 'View',
+        label: 'Ansicht',
         items: [
           {
-            label: 'Side panel',
+            label: 'Seitenleiste',
             checked: !panelsHidden,
             onSelect: () => setPanelsHidden((value) => !value),
           },
           {
-            label: 'Focus mode',
+            label: 'Fokusmodus',
             checked: focusMode,
             onSelect: () => setFocusMode((value) => !value),
           },
@@ -326,7 +542,7 @@ export function App() {
         label: 'Audio',
         items: [
           {
-            label: 'Dial-up intro sound',
+            label: 'Einwahlton beim Start',
             checked: audio.introSound,
             onSelect: () =>
               setAudio((current) => ({
@@ -335,7 +551,7 @@ export function App() {
               })),
           },
           {
-            label: 'Interface sounds',
+            label: 'Oberflächenklänge',
             checked: audio.uiSounds,
             onSelect: () =>
               setAudio((current) => ({
@@ -343,24 +559,32 @@ export function App() {
                 uiSounds: !current.uiSounds,
               })),
           },
-          { label: 'Audio preferences…', onSelect: () => setDialog('audio') },
+          { label: 'Audioeinstellungen…', onSelect: () => setDialog('audio') },
         ],
       },
       {
-        label: 'Help',
+        label: 'Hilfe',
         items: [
           {
-            label: 'Keyboard shortcuts',
+            label: 'Tastaturkürzel',
             onSelect: () => setDialog('shortcuts'),
           },
           {
-            label: 'About Spotify Music Quiz',
+            label: 'Über Back to the 90s',
             onSelect: () => setDialog('about'),
           },
         ],
       },
     ],
-    [audio.introSound, audio.uiSounds, focusMode, game, panelsHidden],
+    [
+      audio.introSound,
+      audio.uiSounds,
+      authenticated,
+      busy,
+      focusMode,
+      game,
+      panelsHidden,
+    ],
   );
 
   const toolbarActions: ToolbarAction[] = useMemo(() => {
@@ -369,8 +593,8 @@ export function App() {
       actions.push(
         {
           id: 'start',
-          label: 'Play',
-          description: 'Start round',
+          label: 'Start',
+          description: 'Runde starten',
           icon: 'play',
           disabled: busy || game.status !== 'ready',
           onSelect: () => void sendCommand('start'),
@@ -379,7 +603,7 @@ export function App() {
           id: 'pause',
           label: 'Pause',
           description:
-            game.status === 'paused' ? 'Resume round' : 'Pause round',
+            game.status === 'paused' ? 'Runde fortsetzen' : 'Runde pausieren',
           icon: 'pause',
           disabled:
             busy || (game.status !== 'playing' && game.status !== 'paused'),
@@ -388,8 +612,8 @@ export function App() {
         },
         {
           id: 'reveal',
-          label: 'Reveal',
-          description: 'Reveal answer',
+          label: 'Auflösen',
+          description: 'Antwort aufdecken',
           icon: 'reveal',
           disabled:
             busy || (game.status !== 'playing' && game.status !== 'paused'),
@@ -397,16 +621,16 @@ export function App() {
         },
         {
           id: 'next',
-          label: 'Next',
-          description: 'Next round',
+          label: 'Weiter',
+          description: 'Nächste Runde',
           icon: 'next',
           disabled: busy || game.status !== 'revealed',
           onSelect: () => void sendCommand('next'),
         },
         {
           id: 'stop',
-          label: 'Stop',
-          description: 'Exit quiz',
+          label: 'Stopp',
+          description: 'Quiz beenden',
           icon: 'stop',
           onSelect: () => setDialog('exit'),
         },
@@ -416,14 +640,14 @@ export function App() {
       {
         id: 'audio',
         label: 'Audio',
-        description: 'Open audio preferences',
+        description: 'Audioeinstellungen öffnen',
         icon: 'audio',
         onSelect: () => setDialog('audio'),
       },
       {
         id: 'help',
-        label: 'Help',
-        description: 'About Spotify Music Quiz',
+        label: 'Hilfe',
+        description: 'Über Back to the 90s',
         icon: 'help',
         onSelect: () => setDialog('about'),
       },
@@ -433,32 +657,32 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, game]);
 
-  let connection = 'Ready';
+  let connection = 'Bereit';
   let connectionIcon: RetroIconName = 'app';
   if (handshaking) {
-    connection = 'Connecting… negotiating with the music server';
+    connection = 'Verbinde… Musikserver wird kontaktiert';
     connectionIcon = 'loading';
   } else if (error) {
-    connection = 'Error — see the message in the document';
+    connection = 'Fehler — Meldung im Fenster beachten';
     connectionIcon = 'error';
   } else if (busy) {
-    connection = 'Working…';
+    connection = 'Arbeite…';
     connectionIcon = 'loading';
   } else if (game) {
-    connection = `Document: round ${game.round_number} — ${game.status}`;
+    connection = `Dokument: Runde ${game.round_number} — ${STATUS_LABELS[game.status]}`;
   }
 
   const shortcuts: DesktopShortcut[] = useMemo(
     () => [
       {
         id: 'quiz',
-        label: 'Music Quiz',
+        label: 'Back to the 90s',
         icon: 'app',
         onOpen: () => setMinimized(false),
       },
       {
         id: 'spotify',
-        label: 'Connect Spotify',
+        label: 'Spotify verbinden',
         icon: 'spotify',
         onOpen: () => {
           window.location.href = api.loginUrl();
@@ -472,7 +696,7 @@ export function App() {
       },
       {
         id: 'help',
-        label: 'Help',
+        label: 'Hilfe',
         icon: 'help',
         onOpen: () => setDialog('shortcuts'),
       },
@@ -483,45 +707,51 @@ export function App() {
   const startItems: StartMenuItem[] = useMemo(
     () => [
       {
-        label: minimized ? 'Restore Music Quiz' : 'Music Quiz',
+        label: minimized ? 'Quiz wiederherstellen' : 'Back to the 90s',
         icon: 'app',
         onSelect: () => setMinimized(false),
       },
       {
-        label: 'Import playlist…',
+        label: 'Spotify-Playlist auswählen…',
         icon: 'import',
         onSelect: () => setDialog('import'),
       },
       {
-        label: 'Connect Spotify account',
+        label: 'Spotify-Konto verbinden',
         icon: 'spotify',
         onSelect: () => {
           window.location.href = api.loginUrl();
         },
       },
       {
-        label: 'Audio preferences…',
+        label: 'Von Spotify abmelden',
+        icon: 'stop',
+        disabled: !authenticated || busy,
+        onSelect: () => void logoutSpotify(),
+      },
+      {
+        label: 'Audioeinstellungen…',
         icon: 'audio',
         onSelect: () => setDialog('audio'),
       },
       {
-        label: 'Keyboard shortcuts',
+        label: 'Tastaturkürzel',
         icon: 'help',
         onSelect: () => setDialog('shortcuts'),
       },
       {
-        label: 'About Spotify Music Quiz',
+        label: 'Über Back to the 90s',
         icon: 'app',
         onSelect: () => setDialog('about'),
       },
       {
-        label: 'Shut down…',
+        label: 'Beenden…',
         icon: 'error',
         disabled: !game,
         onSelect: () => setDialog('exit'),
       },
     ],
-    [game, minimized],
+    [authenticated, busy, game, minimized],
   );
 
   const clockLabel = clock.toLocaleTimeString('en-GB', {
@@ -531,7 +761,9 @@ export function App() {
 
   const playlistLocation = game
     ? `spotify:quiz:${game.id}`
-    : 'spotify:playlist:(none selected — using the demo catalogue)';
+    : selectedPlaylist
+      ? `spotify:playlist:${selectedPlaylist.name}`
+      : 'spotify:playlist:(Playlist auswählen)';
 
   return (
     <div className="desktop">
@@ -566,11 +798,37 @@ export function App() {
           aria-labelledby="app-title"
         >
           <div className="window-body">
-            <p className="notice" role="note">
-              {authenticated
-                ? PLAYBACK_READY_NOTICE
-                : PLAYBACK_UNAVAILABLE_NOTICE}
-            </p>
+            <div className="notice auth-notice" role="note">
+              <span>
+                {authenticated
+                  ? PLAYBACK_READY_NOTICE
+                  : PLAYBACK_UNAVAILABLE_NOTICE}
+              </span>
+              {authenticated && (
+                <span className="auth-actions">
+                  <button
+                    type="button"
+                    onClick={() => void testSpotifyPlayer()}
+                    disabled={busy || playbackTest?.startsWith('Testing')}
+                  >
+                    Spotify-Player testen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void logoutSpotify()}
+                    disabled={busy}
+                  >
+                    Von Spotify abmelden
+                  </button>
+                </span>
+              )}
+            </div>
+
+            {playbackTest && (
+              <p className="notice" role="status">
+                {playbackTest}
+              </p>
+            )}
 
             {authNotice && (
               <p className="notice" role="status">
@@ -583,7 +841,7 @@ export function App() {
                 className="notice notice-warning"
                 aria-labelledby="config-problems"
               >
-                <h2 id="config-problems">Configuration needs attention</h2>
+                <h2 id="config-problems">Konfiguration prüfen</h2>
                 <ul>
                   {config.problems.map((problem) => (
                     <li key={problem}>{problem}</li>
@@ -603,9 +861,9 @@ export function App() {
 
             {handshaking && (
               <p className="notice">
-                <RetroIcon name="loading" /> Dialling the music server…{' '}
+                <RetroIcon name="loading" /> Musikserver wird angewählt…{' '}
                 <button type="button" onClick={stopHandshake}>
-                  Skip sound
+                  Ton überspringen
                 </button>
               </p>
             )}
@@ -616,10 +874,47 @@ export function App() {
                 onSubmit={createGame}
                 aria-labelledby="setup-heading"
               >
-                <h2 id="setup-heading">Set up the quiz</h2>
+                <h2 id="setup-heading">Quiz einrichten</h2>
+
+                {authenticated && (
+                  <section
+                    className="playlist-selection"
+                    aria-labelledby="selected-playlist-heading"
+                  >
+                    <h3 id="selected-playlist-heading">Spotify-Playlist</h3>
+                    {selectedPlaylist && analysis ? (
+                      <div className="playlist-selected">
+                        <strong>{selectedPlaylist.name}</strong>
+                        <span>
+                          {analysis.eligible_unique_tracks} geeignete Titel ·{' '}
+                          {analysis.total_items} Titel insgesamt
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDialog('import')}
+                        >
+                          Playlist ändern
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="hint">
+                          Wähle eine echte Spotify-Playlist aus und analysiere
+                          sie vor dem Start.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setDialog('import')}
+                        >
+                          Spotify-Playlist auswählen…
+                        </button>
+                      </>
+                    )}
+                  </section>
+                )}
 
                 <div className="field">
-                  <label htmlFor="teams">Teams (comma separated)</label>
+                  <label htmlFor="teams">Teams (durch Komma getrennt)</label>
                   <input
                     id="teams"
                     name="teams"
@@ -630,12 +925,12 @@ export function App() {
                     required
                   />
                   <p id="teams-hint" className="hint">
-                    For example: Team A, Team B
+                    Zum Beispiel: Team A, Team B
                   </p>
                 </div>
 
                 <div className="field">
-                  <label htmlFor="rounds">Number of rounds</label>
+                  <label htmlFor="rounds">Anzahl der Runden</label>
                   <input
                     id="rounds"
                     name="rounds"
@@ -648,7 +943,9 @@ export function App() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="excerpt">Excerpt length in seconds</label>
+                  <label htmlFor="excerpt">
+                    Länge des Ausschnitts in Sekunden
+                  </label>
                   <input
                     id="excerpt"
                     name="excerpt"
@@ -663,7 +960,7 @@ export function App() {
                 </div>
 
                 <fieldset className="field">
-                  <legend>Overall time limit</legend>
+                  <legend>Gesamte Zeitbegrenzung</legend>
                   {TIME_LIMIT_OPTIONS.map((option) => (
                     <div className="radio" key={option.value}>
                       <input
@@ -682,12 +979,20 @@ export function App() {
                 </fieldset>
 
                 <div className="actions">
-                  <button type="submit" className="primary" disabled={busy}>
-                    Start quiz
+                  <button
+                    type="submit"
+                    className="primary"
+                    disabled={
+                      busy || (authenticated && !canContinueWithPlaylist)
+                    }
+                  >
+                    Quiz starten
                   </button>
-                  <a className="button-link" href={api.loginUrl()}>
-                    Connect Spotify account
-                  </a>
+                  {!authenticated && (
+                    <a className="button-link" href={api.loginUrl()}>
+                      Spotify-Konto verbinden
+                    </a>
+                  )}
                 </div>
               </form>
             )}
@@ -695,10 +1000,10 @@ export function App() {
             {game && (
               <section className="game" aria-labelledby="round-heading">
                 <h2 id="round-heading">
-                  Round {game.round_number} of {game.rounds}
+                  Runde {game.round_number} von {game.rounds}
                 </h2>
                 <p className="status" aria-live="polite">
-                  Status: {game.status}
+                  Status: {STATUS_LABELS[game.status]}
                 </p>
 
                 <div className="card stage">
@@ -707,10 +1012,10 @@ export function App() {
                       <p className="mystery" aria-hidden="true">
                         ?
                       </p>
-                      <p>The track is hidden until you reveal it.</p>
+                      <p>Der Titel bleibt verborgen, bis du ihn aufdeckst.</p>
                       <p className="timer">
                         <span className="visually-hidden">
-                          Time remaining in this excerpt:{' '}
+                          Verbleibende Zeit für diesen Ausschnitt:{' '}
                         </span>
                         <output aria-live="off">
                           {formatClock(remainingMs)}
@@ -718,31 +1023,31 @@ export function App() {
                       </p>
                       {excerptElapsed && (
                         <p className="timer-elapsed" aria-live="polite">
-                          The excerpt time is up. Reveal the answer when you are
-                          ready.
+                          Die Zeit ist abgelaufen. Decke die Antwort auf, wenn
+                          du bereit bist.
                         </p>
                       )}
                     </>
                   ) : game.answer ? (
                     <div aria-live="polite">
                       <h3>{game.answer.title}</h3>
-                      <p>Artist: {game.answer.artists.join(', ')}</p>
+                      <p>Interpret: {game.answer.artists.join(', ')}</p>
                       <p>Album: {game.answer.album}</p>
                     </div>
                   ) : (
                     <div aria-live="polite">
-                      <h3>Game complete</h3>
-                      <p>Thanks for playing.</p>
+                      <h3>Quiz beendet</h3>
+                      <p>Danke fürs Mitspielen.</p>
                     </div>
                   )}
                 </div>
 
                 <table className="scoreboard">
-                  <caption>Scoreboard</caption>
+                  <caption>Punktestand</caption>
                   <thead>
                     <tr>
                       <th scope="col">Team</th>
-                      <th scope="col">Points</th>
+                      <th scope="col">Punkte</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -757,7 +1062,7 @@ export function App() {
 
                 {game.status === 'revealed' && (
                   <section className="card" aria-labelledby="scoring-heading">
-                    <h3 id="scoring-heading">Award points</h3>
+                    <h3 id="scoring-heading">Punkte vergeben</h3>
                     <ul className="scoring-list">
                       {game.participants.map((participant) => (
                         <li key={participant.id}>
@@ -773,10 +1078,10 @@ export function App() {
                           >
                             <span aria-hidden="true">+1</span>
                             <span className="visually-hidden">
-                              Award one point to {participant.name} for the
-                              title
+                              Einen Punkt für den Titel an {participant.name}
+                              vergeben
                             </span>
-                            <span aria-hidden="true"> title</span>
+                            <span aria-hidden="true"> Titel</span>
                           </button>
                           <button
                             type="button"
@@ -787,10 +1092,11 @@ export function App() {
                           >
                             <span aria-hidden="true">+1</span>
                             <span className="visually-hidden">
-                              Award one point to {participant.name} for the
-                              artist
+                              Einen Punkt für den Interpreten an{' '}
+                              {participant.name}
+                              vergeben
                             </span>
-                            <span aria-hidden="true"> artist</span>
+                            <span aria-hidden="true"> Interpret</span>
                           </button>
                         </li>
                       ))}
@@ -800,12 +1106,12 @@ export function App() {
 
                 {activeEvents.length > 0 && (
                   <section className="card" aria-labelledby="history-heading">
-                    <h3 id="history-heading">Awarded this game</h3>
+                    <h3 id="history-heading">Punkte in diesem Quiz</h3>
                     <ul className="score-history">
                       {activeEvents.map((event) => (
                         <li key={event.id}>
                           <span>
-                            {nameOf(event.participant_id)}: {event.points} for{' '}
+                            {nameOf(event.participant_id)}: {event.points} für{' '}
                             {event.reason}
                           </span>
                           <button
@@ -813,9 +1119,9 @@ export function App() {
                             onClick={() => void undo(event.id)}
                             disabled={busy}
                           >
-                            <span aria-hidden="true">Undo</span>
+                            <span aria-hidden="true">Rückgängig</span>
                             <span className="visually-hidden">
-                              Undo {event.points} points for{' '}
+                              {event.points} Punkte für{' '}
                               {nameOf(event.participant_id)}
                             </span>
                           </button>
@@ -830,19 +1136,20 @@ export function App() {
 
           {!panelsHidden && (
             <aside className="retro-panel" aria-labelledby="panel-heading">
-              <h2 id="panel-heading">Quiz master notes</h2>
+              <h2 id="panel-heading">Notizen für den Quizmaster</h2>
               <p className="hint">
-                Answers stay concealed on the server until you reveal them, so
-                this window can be shown on a shared screen.
+                Antworten bleiben bis zum Aufdecken auf dem Server verborgen.
+                Dieses Fenster kann auf einem gemeinsamen Bildschirm angezeigt
+                werden.
               </p>
               <h3>Audio</h3>
               <p className="hint">
-                Dial-up intro: {audio.introSound ? 'on' : 'off'} · Interface
-                sounds: {audio.uiSounds ? 'on' : 'off'} · Volume:{' '}
+                Einwahlton: {audio.introSound ? 'an' : 'aus'} ·
+                Oberflächenklänge: {audio.uiSounds ? 'an' : 'aus'} · Lautstärke:{' '}
                 {Math.round(audio.volume * 100)}%
               </p>
               <button type="button" onClick={() => setDialog('audio')}>
-                Audio preferences…
+                Audioeinstellungen…
               </button>
             </aside>
           )}
@@ -853,8 +1160,8 @@ export function App() {
           connectionIcon={connectionIcon}
           round={
             game
-              ? `Round ${game.round_number}/${game.rounds}`
-              : 'No document loaded'
+              ? `Runde ${game.round_number}/${game.rounds}`
+              : 'Kein Quiz geladen'
           }
           players={game ? `${game.participants.length} teams` : undefined}
           clock={clockLabel}
@@ -870,7 +1177,7 @@ export function App() {
       />
 
       <RetroDialog
-        title="Audio preferences"
+        title="Audioeinstellungen"
         icon="audio"
         open={dialog === 'audio'}
         onClose={() => setDialog(undefined)}
@@ -886,7 +1193,7 @@ export function App() {
               }
             />
             <label htmlFor="pref-intro">
-              Play the dial-up intro when a quiz starts
+              Einwahlton beim Start des Quiz abspielen
             </label>
           </div>
           <div className="radio">
@@ -898,7 +1205,9 @@ export function App() {
                 setAudio({ ...audio, skipIntro: event.target.checked })
               }
             />
-            <label htmlFor="pref-skip">Skip the intro this session</label>
+            <label htmlFor="pref-skip">
+              Einwahlton in dieser Sitzung überspringen
+            </label>
           </div>
           <div className="radio">
             <input
@@ -909,12 +1218,12 @@ export function App() {
                 setAudio({ ...audio, uiSounds: event.target.checked })
               }
             />
-            <label htmlFor="pref-ui">Play short interface sounds</label>
+            <label htmlFor="pref-ui">Kurze Oberflächenklänge abspielen</label>
           </div>
         </div>
         <div className="field">
           <label htmlFor="pref-volume">
-            Volume: {Math.round(audio.volume * 100)}%
+            Lautstärke: {Math.round(audio.volume * 100)}%
           </label>
           <input
             className="retro-range"
@@ -929,8 +1238,8 @@ export function App() {
             }
           />
           <p className="hint">
-            Sounds are synthesised in the browser, so nothing is downloaded and
-            no recording is bundled with the app.
+            Die Klänge werden im Browser erzeugt; es wird nichts heruntergeladen
+            und keine Aufnahme mit der App ausgeliefert.
           </p>
         </div>
         <button
@@ -941,108 +1250,410 @@ export function App() {
             )
           }
         >
-          Preview intro sound
+          Einwahlton probehören
         </button>
       </RetroDialog>
 
       <RetroDialog
-        title="Keyboard shortcuts"
+        title="Tastaturkürzel"
         icon="help"
         open={dialog === 'shortcuts'}
         onClose={() => setDialog(undefined)}
       >
         <table className="retro-kbd-table">
           <caption className="visually-hidden">
-            Keyboard shortcuts for the retro interface
+            Tastaturkürzel der Retro-Oberfläche
           </caption>
           <thead>
             <tr>
               <th scope="col">Key</th>
-              <th scope="col">Action</th>
+              <th scope="col">Aktion</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td>Tab / Shift + Tab</td>
-              <td>Move between controls</td>
+              <td>Zwischen Steuerelementen wechseln</td>
             </tr>
             <tr>
               <td>Left / Right</td>
-              <td>Move between menu titles</td>
+              <td>Zwischen Menütiteln wechseln</td>
             </tr>
             <tr>
               <td>Enter or Down</td>
-              <td>Open the focused menu</td>
+              <td>Fokussiertes Menü öffnen</td>
             </tr>
             <tr>
               <td>Up / Down / Home / End</td>
-              <td>Move inside an open menu</td>
+              <td>Im geöffneten Menü bewegen</td>
             </tr>
             <tr>
               <td>Escape</td>
-              <td>Close the menu or dialog and return focus</td>
+              <td>Menü/Dialog schließen und Fokus zurückgeben</td>
             </tr>
           </tbody>
         </table>
       </RetroDialog>
 
       <RetroDialog
-        title="About Spotify Music Quiz"
+        title="Über Back to the 90s"
         icon="app"
         open={dialog === 'about'}
         onClose={() => setDialog(undefined)}
       >
         <p>
-          A music quiz for a shared screen, wearing a 1996 interface. The
-          Windows 95 and Netscape Navigator look is an homage drawn from
-          scratch: no Microsoft, Netscape, or Spotify assets are bundled.
+          Ein Musikquiz für den gemeinsamen Bildschirm im Look von 1996. Die
+          Windows-95- und Netscape-Navigator-Optik ist selbst gestaltet; es
+          werden keine Microsoft-, Netscape- oder Spotify-Assets mitgeliefert.
         </p>
         <p className="hint">
-          Audio plays through the Spotify Web Playback SDK in this browser and
-          requires a connected Spotify Premium account. Without one, the quiz
-          keeps time and score only.
+          Audio wird über das Spotify Web Playback SDK in diesem Browser
+          abgespielt und benötigt ein verbundenes Spotify-Premium-Konto. Ohne
+          Konto misst das Quiz nur Zeit und Punkte.
         </p>
       </RetroDialog>
 
       <RetroDialog
-        title="Import playlist"
+        title="Spotify-Playlist auswählen"
         icon="import"
         open={dialog === 'import'}
         onClose={() => setDialog(undefined)}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => void loadPlaylists()}
+              disabled={playlistsLoading}
+            >
+              Erneut versuchen
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={
+                !canContinueWithPlaylist || analysisLoading || playlistsLoading
+              }
+              onClick={() => setDialog(undefined)}
+            >
+              Diese Playlist verwenden
+            </button>
+          </>
+        }
       >
-        <p>
-          Playlist import is not available yet. The quiz currently draws its
-          rounds from the demo catalogue on the server.
-        </p>
-        <p className="hint">
-          Connect a Spotify account from the File menu to prepare for playlist
-          support.
-        </p>
+        {!authenticated ? (
+          <>
+            <p role="status">Verbinde Spotify, um deine Playlists zu laden.</p>
+            <a className="button-link" href={api.loginUrl()}>
+              Spotify-Konto verbinden
+            </a>
+          </>
+        ) : playlistsLoading ? (
+          <p role="status" aria-live="polite">
+            Spotify-Playlists werden geladen…
+          </p>
+        ) : playlistsError ? (
+          <div className="error" role="alert">
+            <p>{playlistsError}</p>
+            <button type="button" onClick={() => void loadPlaylists()}>
+              Playlists erneut laden
+            </button>
+          </div>
+        ) : playlists.length === 0 ? (
+          <div role="status">
+            <p>Keine Spotify-Playlists verfügbar.</p>
+            <p className="hint">
+              Erstelle oder teile eine Playlist in Spotify und versuche es
+              erneut.
+            </p>
+          </div>
+        ) : (
+          <>
+            <p id="playlist-list-help" className="hint">
+              Wähle eine Playlist aus und analysiere sie für den aktuellen
+              10-Sekunden-Anfang.
+            </p>
+            <div
+              className="playlist-list"
+              role="radiogroup"
+              aria-describedby="playlist-list-help"
+            >
+              {playlists.map((playlist) => (
+                <label className="playlist-option" key={playlist.id}>
+                  <input
+                    type="radio"
+                    name="spotify-playlist"
+                    value={playlist.id}
+                    checked={selectedPlaylistId === playlist.id}
+                    onChange={() => selectPlaylist(playlist.id)}
+                  />
+                  {playlist.image_url ? (
+                    <img
+                      className="playlist-cover"
+                      src={playlist.image_url}
+                      alt=""
+                    />
+                  ) : (
+                    <span
+                      className="playlist-cover playlist-cover-empty"
+                      aria-hidden="true"
+                    >
+                      ♪
+                    </span>
+                  )}
+                  <span className="playlist-details">
+                    <strong>{playlist.name}</strong>
+                    <span>
+                      {playlist.owner || 'Unbekannter Besitzer'} ·{' '}
+                      {playlist.total} Titel
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {selectedPlaylist && (
+              <section
+                className="playlist-analysis"
+                aria-live="polite"
+                aria-labelledby="analysis-heading"
+              >
+                <h3 id="analysis-heading">Playlist-Analyse</h3>
+                {analysisError && (
+                  <p className="error" role="alert">
+                    {analysisError}
+                  </p>
+                )}
+                {analysis ? (
+                  <dl className="playlist-summary">
+                    <div>
+                      <dt>Playlist-Titel insgesamt</dt>
+                      <dd>{analysis.total_items}</dd>
+                    </div>
+                    <div>
+                      <dt>Geeignete eindeutige Titel</dt>
+                      <dd>{analysis.eligible_unique_tracks}</dd>
+                    </div>
+                    <div>
+                      <dt>Entfernte Duplikate</dt>
+                      <dd>{analysis.duplicates_removed}</dd>
+                    </div>
+                    <div>
+                      <dt>Nicht verfügbar / nicht unterstützt</dt>
+                      <dd>{analysis.unavailable_or_unsupported}</dd>
+                    </div>
+                    <div>
+                      <dt>Zu kurz für den Ausschnitt</dt>
+                      <dd>{analysis.too_short_for_excerpt}</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p>Analysiere diese Playlist, bevor du fortfährst.</p>
+                )}
+                {analysis && analysis.eligible_unique_tracks === 0 && (
+                  <p className="notice notice-warning">
+                    Diese Playlist enthält für die aktuellen Spieleinstellungen
+                    keine geeigneten Titel.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void analyzeSelectedPlaylist()}
+                  disabled={analysisLoading}
+                >
+                  {analysisLoading
+                    ? 'Analysiere…'
+                    : 'Ausgewählte Playlist analysieren'}
+                </button>
+              </section>
+            )}
+          </>
+        )}
       </RetroDialog>
 
       <RetroDialog
-        title="Exit quiz"
+        title="Quiz beenden"
         icon="error"
         open={dialog === 'exit'}
         onClose={() => setDialog(undefined)}
         footer={
           <>
             <button type="button" onClick={() => setDialog(undefined)}>
-              Cancel
+              Abbrechen
             </button>
             <button type="button" className="primary" onClick={exitQuiz}>
-              Exit quiz
+              Quiz beenden
             </button>
           </>
         }
       >
         <p>
-          Exit the current quiz and return to the setup screen? Scores for this
-          game are kept on the server.
+          Das aktuelle Quiz beenden und zur Einrichtung zurückkehren? Der
+          Punktestand dieses Spiels bleibt auf dem Server erhalten.
         </p>
       </RetroDialog>
     </div>
   );
+}
+
+function DisplayView() {
+  const [state, setState] = useState<DisplayState | undefined>(() => {
+    const saved = window.localStorage?.getItem(DISPLAY_STATE_KEY);
+    if (!saved) return undefined;
+    try {
+      return JSON.parse(saved) as DisplayState;
+    } catch {
+      return undefined;
+    }
+  });
+  const remainingMs = useCountdown(
+    state?.excerpt_remaining_ms ?? 0,
+    state?.status === 'playing',
+  );
+
+  useEffect(() => {
+    const apply = (next: DisplayState | null) => setState(next ?? undefined);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== DISPLAY_STATE_KEY) return;
+      apply(
+        event.newValue ? (JSON.parse(event.newValue) as DisplayState) : null,
+      );
+    };
+    window.addEventListener('storage', onStorage);
+    const channel =
+      typeof BroadcastChannel !== 'undefined'
+        ? new BroadcastChannel(DISPLAY_CHANNEL)
+        : undefined;
+    if (channel)
+      channel.onmessage = (event: MessageEvent<DisplayState | null>) =>
+        apply(event.data);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      channel?.close();
+    };
+  }, []);
+
+  return (
+    <main className="player-display" aria-labelledby="display-heading">
+      <div className="player-browser-window">
+        <header className="player-browser-titlebar">
+          <span className="player-browser-mark" aria-hidden="true">
+            N
+          </span>
+          <h1 id="display-heading">Back to the 90s – Amt 16 Musikquiz</h1>
+          <span className="player-browser-buttons" aria-hidden="true">
+            _ □ ×
+          </span>
+        </header>
+        <nav className="player-browser-menubar" aria-label="Beamer-Menü">
+          <span>Datei</span>
+          <span>Bearbeiten</span>
+          <span>Ansicht</span>
+          <span>Gehe zu</span>
+          <span>Lesezeichen</span>
+          <span>Optionen</span>
+          <span>Verzeichnis</span>
+          <span>Hilfe</span>
+        </nav>
+        <div className="player-browser-toolbar" aria-hidden="true">
+          <span className="player-browser-tool">
+            ←<small>Zurück</small>
+          </span>
+          <span className="player-browser-tool">
+            →<small>Vorwärts</small>
+          </span>
+          <span className="player-browser-tool">
+            ⌂<small>Home</small>
+          </span>
+          <span className="player-browser-tool">
+            ↻<small>Neu laden</small>
+          </span>
+          <span className="player-browser-tool">
+            ▧<small>Bilder</small>
+          </span>
+          <span className="player-browser-tool">
+            ▤<small>Öffnen</small>
+          </span>
+          <span className="player-browser-tool">
+            ⌕<small>Suchen</small>
+          </span>
+          <span className="player-browser-tool player-browser-tool-stop">
+            ■<small>Stopp</small>
+          </span>
+        </div>
+        <div className="player-browser-tabs" aria-hidden="true">
+          <span>Was gibt&apos;s Neues?</span>
+          <span>Handbuch</span>
+          <span>Netzsuche</span>
+          <span>Verzeichnis</span>
+          <span>Software</span>
+        </div>
+        <div className="player-browser-location">
+          <span className="player-browser-location-label">Adresse:</span>
+          <span className="player-browser-location-value">
+            http://amt16.local/quiz
+          </span>
+          <span className="player-browser-n-mark" aria-hidden="true">
+            N
+          </span>
+        </div>
+        <div className="player-display-inner">
+          <header className="player-display-header">
+            <div>
+              <p className="player-display-kicker">
+                AMT 16 · FRANKFURT AM MAIN
+              </p>
+              <h2>Back to the 90s</h2>
+            </div>
+            <p>Beamer-Ansicht</p>
+          </header>
+          {!state ? (
+            <section className="player-display-card">
+              <h3>Warte auf den Quizmaster</h3>
+              <p>Das Quiz erscheint hier, sobald der Quizmaster es startet.</p>
+            </section>
+          ) : (
+            <section className="player-display-card">
+              <p className="player-display-round">
+                Runde {state.round_number} von {state.rounds}
+              </p>
+              <p className="player-display-status">
+                Status: {STATUS_LABELS[state.status]}
+              </p>
+              {state.status === 'revealed' && state.answer ? (
+                <div className="player-display-answer" aria-live="polite">
+                  <h2>{state.answer.title}</h2>
+                  <p>Interpret: {state.answer.artists.join(', ')}</p>
+                  <p>Album: {state.answer.album}</p>
+                </div>
+              ) : state.status === 'playing' || state.status === 'paused' ? (
+                <div className="player-display-playing" aria-live="polite">
+                  <p className="player-display-mystery" aria-hidden="true">
+                    ?
+                  </p>
+                  <p>
+                    Der Titel bleibt verborgen, bis der Quizmaster ihn aufdeckt.
+                  </p>
+                  <output className="player-display-clock">
+                    {formatClock(remainingMs)}
+                  </output>
+                </div>
+              ) : (
+                <p>Bereit für den nächsten Ausschnitt.</p>
+              )}
+            </section>
+          )}
+        </div>
+        <footer className="player-browser-footer">
+          Bereit · Back to the 90s
+        </footer>
+      </div>
+    </main>
+  );
+}
+
+export function App() {
+  const displayMode =
+    new URLSearchParams(window.location.search).get('view') === 'display';
+  return displayMode ? <DisplayView /> : <HostApp />;
 }
 
 export default App;

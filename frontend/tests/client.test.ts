@@ -131,4 +131,27 @@ describe('api client', () => {
     expect(urls[0]).toContain('/games/game-1/scores');
     expect(urls[1]).toContain('/games/game-1/scores/event-9/reverse');
   });
+
+  it('loads playlist analysis through the credentialed backend client', async () => {
+    fetchMock().mockResolvedValue(
+      jsonResponse({
+        total_items: 12,
+        eligible_unique_tracks: 10,
+        duplicates_removed: 1,
+        unavailable_or_unsupported: 1,
+        too_short_for_excerpt: 0,
+      }),
+    );
+
+    await expect(api.playlistAnalysis('playlist/1', 10)).resolves.toMatchObject(
+      {
+        eligible_unique_tracks: 10,
+      },
+    );
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/playlists/playlist%2F1/analysis?excerpt_seconds=10&mode=intro',
+    );
+    expect(init.credentials).toBe('include');
+  });
 });

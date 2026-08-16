@@ -33,4 +33,4 @@ The Playwright configuration starts the Vite frontend in explicit `VITE_FAKE_SPO
 - OAuth callback success/failure derivation from the backend auth status
 - Real-mode playlist selection is covered structurally by the typed `/playlists` client and selected `playlist_id` request path; live Spotify data remains manual.
 
-The current automated gate is 24 Playwright tests and 6 frontend unit tests; live Spotify OAuth, playlist loading, SDK device lifecycle, and audio playback are not part of the credential-free gate. Spotify Web API hardening tests cover full pagination, bounded 401 refresh, 429 `Retry-After`, and 5xx backoff using HTTP mocks.
+Frontend unit tests cover credentialed playlist loading, keyboard-operable selection, eligibility summaries, zero-eligible blocking, and safe error handling in addition to the game flow. Live Spotify OAuth and playlist loading have been manually verified; SDK device lifecycle and audio playback remain manual. Spotify Web API hardening tests cover full pagination, bounded 401 refresh, 429 `Retry-After`, 5xx backoff, and eligibility classification using HTTP mocks.

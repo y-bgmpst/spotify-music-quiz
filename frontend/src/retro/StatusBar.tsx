@@ -32,7 +32,7 @@ export function StatusBar({
       {players && <p className="retro-status-cell">{players}</p>}
       {clock && (
         <p className="retro-status-cell retro-status-clock">
-          <span className="visually-hidden">Local time: </span>
+          <span className="visually-hidden">Lokale Uhrzeit: </span>
           <span>{clock}</span>
         </p>
       )}

@@ -8,6 +8,7 @@ function createSdkPlayer() {
   const listeners = new Map<string, Listener>();
   const player = {
     connect: vi.fn(async () => true),
+    activateElement: vi.fn(async () => undefined),
     disconnect: vi.fn(),
     pause: vi.fn(async () => undefined),
     resume: vi.fn(async () => undefined),
@@ -58,6 +59,7 @@ async function readyNow(
   deviceId = 'device-test',
 ) {
   await Promise.resolve();
+  await Promise.resolve();
   sdkPlayer.emit('ready', { device_id: deviceId });
 }
 
@@ -85,6 +87,18 @@ describe('SpotifyWebPlayback', () => {
     });
   });
 
+  it('tests the browser player connection without starting playback', async () => {
+    const { playback, sdkPlayer, fetchImpl } = createPlayback();
+
+    const connection = playback.testConnection();
+    await readyNow(sdkPlayer, 'device-1');
+    await connection;
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(sdkPlayer.connect).toHaveBeenCalledTimes(1);
+    expect(sdkPlayer.activateElement).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a Premium requirement instead of a generic failure', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 403 }));
     const { playback, sdkPlayer } = createPlayback({ fetchImpl });
@@ -109,6 +123,7 @@ describe('SpotifyWebPlayback', () => {
     const { playback, sdkPlayer } = createPlayback();
 
     const connection = playback.start(TARGET);
+    await Promise.resolve();
     await Promise.resolve();
     sdkPlayer.emit('account_error');
 
@@ -151,7 +166,7 @@ describe('SpotifyWebPlayback', () => {
 
     expect(playback.device).toBeUndefined();
     expect(onError).toHaveBeenCalledWith(
-      'The Spotify playback device is unavailable.',
+      'Das Spotify-Wiedergabegerät ist nicht verfügbar.',
     );
   });
 
@@ -165,6 +180,6 @@ describe('SpotifyWebPlayback', () => {
 
     sdkPlayer.emit('playback_error', { message: 'private SDK payload' });
 
-    expect(onError).toHaveBeenCalledWith('Spotify playback failed.');
+    expect(onError).toHaveBeenCalledWith('Spotify-Wiedergabe fehlgeschlagen.');
   });
 });

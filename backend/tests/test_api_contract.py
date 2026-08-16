@@ -195,3 +195,38 @@ def test_live_playlist_endpoint_requires_an_authenticated_session(api, monkeypat
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "spotify_not_authenticated"
+
+
+def test_playlist_analysis_returns_eligibility_summary(api) -> None:
+    client, _ = api
+
+    response = client.get("/api/v1/playlists/fake-playlist/analysis")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_items": 12,
+        "eligible_unique_tracks": 12,
+        "duplicates_removed": 0,
+        "unavailable_or_unsupported": 0,
+        "too_short_for_excerpt": 0,
+    }
+
+
+def test_spotify_playlist_errors_keep_safe_status_mapping(api, monkeypatch) -> None:
+    client, main = api
+    from music_quiz.spotify.web_api import CatalogError
+
+    def unavailable(_: str | None):
+        raise CatalogError("upstream detail must stay server-side", status_code=404)
+
+    monkeypatch.setattr(main, "current_catalog", unavailable)
+    response = client.get("/api/v1/playlists/example/analysis")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "spotify_not_found",
+            "message": "Could not read that Spotify playlist.",
+        }
+    }
+    assert "upstream detail" not in response.text

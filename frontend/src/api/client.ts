@@ -52,6 +52,15 @@ export interface SpotifyPlaylist {
   name: string;
   owner: string;
   total: number;
+  image_url?: string | null;
+}
+
+export interface PlaylistAnalysis {
+  total_items: number;
+  eligible_unique_tracks: number;
+  duplicates_removed: number;
+  unavailable_or_unsupported: number;
+  too_short_for_excerpt: number;
 }
 
 export interface AuthStatus {
@@ -110,7 +119,7 @@ function messageFor(status: number, envelope: ErrorEnvelope | null): string {
   if (status === 404) return 'That item no longer exists.';
   if (status === 409) return 'That action is not allowed right now.';
   if (status >= 500) return 'The quiz server had a problem. Please try again.';
-  return 'The quiz server rejected the request.';
+  return 'Der Quizserver hat die Anfrage abgelehnt.';
 }
 
 export interface RequestOptions {
@@ -210,6 +219,16 @@ export const api = {
     }),
   playlists: (init?: RequestOptions) =>
     request<SpotifyPlaylist[]>('/playlists', init),
+  playlistAnalysis: (
+    playlistId: string,
+    excerptSeconds: number,
+    mode: 'intro' | 'random' = 'intro',
+    init?: RequestOptions,
+  ) =>
+    request<PlaylistAnalysis>(
+      `/playlists/${encodeURIComponent(playlistId)}/analysis?excerpt_seconds=${excerptSeconds}&mode=${mode}`,
+      init,
+    ),
   create: (body: Record<string, unknown>, init?: RequestOptions) =>
     request<Game>('/games', { ...init, method: 'POST', body }),
   get: (id: string, init?: RequestOptions) =>

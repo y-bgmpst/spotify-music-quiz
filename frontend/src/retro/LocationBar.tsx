@@ -28,7 +28,7 @@ export function LocationBar({ value, onImport }: LocationBarProps) {
       />
       <button type="button" className="retro-button" onClick={onImport}>
         <RetroIcon name="import" />
-        <span>Import…</span>
+        <span>Auswählen…</span>
       </button>
     </div>
   );

@@ -1,4 +1,4 @@
-# Spotify Music Quiz — Windows 95 / Netscape Edition
+# Back to the 90s – Amt 16 Musikquiz
 
 A local-first music guessing game with a Windows 95 desktop and Netscape Navigator-inspired interface.
 
@@ -31,7 +31,7 @@ The demo works without Spotify login when `FAKE_SPOTIFY=true`. It uses fake trac
 
 ## Current status
 
-The game engine, SQLite persistence, OAuth PKCE helpers, fake adapter, Spotify Web API catalog, Web Playback SDK adapter, scoring, and automated tests are implemented. Automated development uses explicit fake mode; real Spotify OAuth, playlist loading, and audio playback still require manual verification. The Web API adapter follows playlist pagination and uses bounded 401 refresh, 429, and 5xx retry handling.
+The game engine, SQLite persistence, OAuth PKCE helpers, fake adapter, Spotify Web API catalog, authenticated playlist selection and eligibility analysis, Web Playback SDK adapter, scoring, and automated tests are implemented. Automated development uses explicit fake mode; real Spotify OAuth and playlist loading have been manually verified. Audio playback still requires a separate live verification. The Web API adapter follows playlist pagination and uses bounded 401 refresh, 429, and 5xx retry handling.
 
 The standalone playlist import script can search Spotify and create a private playlist. It uses a persistent search cache and conservative rate-limit handling.
 

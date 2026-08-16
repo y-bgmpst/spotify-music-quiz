@@ -6,7 +6,7 @@ import secrets
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import Cookie, FastAPI, Response
+from fastapi import Cookie, FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -111,6 +111,17 @@ def current_catalog(session_id: str | None) -> SpotifyCatalog:
         "spotify_not_authenticated",
         "Connect a Spotify account before reading Spotify data.",
     )
+
+
+def _spotify_catalog_error(exc: CatalogError, message: str) -> AppError:
+    status = exc.status_code if exc.status_code in {401, 403, 404, 429} else 502
+    code = {
+        401: "spotify_reauthentication_required",
+        403: "spotify_forbidden",
+        404: "spotify_not_found",
+        429: "spotify_rate_limited",
+    }.get(status, "spotify_unavailable")
+    return AppError(status, code, message, cause=exc)
 
 
 class ConfigInput(BaseModel):
@@ -323,29 +334,22 @@ def playlists(spotify_quiz_session: str | None = Cookie(default=None)) -> list[d
     try:
         return current_catalog(spotify_quiz_session).playlists()
     except CatalogError as exc:
-        raise AppError(
-            502, "spotify_unavailable", "Could not read your Spotify playlists.", cause=exc
-        ) from exc
+        raise _spotify_catalog_error(exc, "Could not read your Spotify playlists.") from exc
 
 
 @app.get("/api/v1/playlists/{playlist_id}/analysis")
 def analysis(
-    playlist_id: str, spotify_quiz_session: str | None = Cookie(default=None)
+    playlist_id: str,
+    excerpt_seconds: int = Query(10, ge=1, le=60),
+    mode: ExcerptMode = ExcerptMode.INTRO,
+    spotify_quiz_session: str | None = Cookie(default=None),
 ) -> dict[str, int]:
     try:
-        items = current_catalog(spotify_quiz_session).playlist_items(playlist_id)
+        return current_catalog(spotify_quiz_session).playlist_analysis(
+            playlist_id, excerpt_seconds, mode.value
+        )
     except CatalogError as exc:
-        raise AppError(
-            502, "spotify_unavailable", "Could not read that Spotify playlist.", cause=exc
-        ) from exc
-    eligible = len(
-        {i.get("uri") for i in items if isinstance(i, dict) and isinstance(i.get("uri"), str)}
-    )
-    return {
-        "total_items": len(items),
-        "eligible_unique_tracks": eligible,
-        "duplicates_removed": len(items) - eligible,
-    }
+        raise _spotify_catalog_error(exc, "Could not read that Spotify playlist.") from exc
 
 
 @app.post("/api/v1/games")
@@ -370,9 +374,7 @@ def create_game(
             catalog=catalog,
         )
     except CatalogError as exc:
-        raise AppError(
-            502, "spotify_unavailable", "Could not read that Spotify playlist.", cause=exc
-        ) from exc
+        raise _spotify_catalog_error(exc, "Could not read that Spotify playlist.") from exc
     except DomainError as exc:
         raise AppError(400, "invalid_game_config", str(exc)) from exc
     return payload(game)

@@ -105,6 +105,11 @@ Test error scenarios by:
 
 ## Game Configuration & Playback
 
+Playlist selection and the backend eligibility summary are now available before
+this section. The host must choose and analyse a playlist with at least one
+eligible unique track before entering game setup. This milestone does not yet
+verify Web Playback SDK device readiness or audio.
+
 ### 9. Game Creation
 
 - [ ] Configure game settings (rounds, excerpt duration, teams)

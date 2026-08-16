@@ -9,7 +9,7 @@
 import type { PlaybackPort, PlaybackTarget } from './player';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
-const PLAYER_NAME = 'Spotify Music Quiz';
+const PLAYER_NAME = 'Back to the 90s – Amt 16 Musikquiz';
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 export class PlaybackError extends Error {
@@ -24,6 +24,7 @@ export class PlaybackError extends Error {
 
 interface SpotifyPlayerLike {
   connect(): Promise<boolean>;
+  activateElement?: () => Promise<void>;
   disconnect(): void;
   pause(): Promise<void>;
   resume(): Promise<void>;
@@ -53,7 +54,10 @@ export function loadSpotifySdk(
 ): Promise<SpotifyGlobal> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return Promise.reject(
-      new PlaybackError('unsupported', 'Playback needs a browser window.'),
+      new PlaybackError(
+        'unsupported',
+        'Für die Wiedergabe wird ein Browserfenster benötigt.',
+      ),
     );
   }
   if (window.Spotify) return Promise.resolve(window.Spotify);
@@ -65,7 +69,7 @@ export function loadSpotifySdk(
       reject(
         new PlaybackError(
           'unsupported',
-          'The Spotify player could not be loaded.',
+          'Der Spotify-Player konnte nicht geladen werden.',
         ),
       );
     }, timeoutMs);
@@ -77,7 +81,7 @@ export function loadSpotifySdk(
         reject(
           new PlaybackError(
             'unsupported',
-            'The Spotify player could not be loaded.',
+            'Der Spotify-Player konnte nicht geladen werden.',
           ),
         );
     };
@@ -95,7 +99,7 @@ export function loadSpotifySdk(
       reject(
         new PlaybackError(
           'unsupported',
-          'The Spotify player script could not be loaded.',
+          'Das Spotify-Player-Skript konnte nicht geladen werden.',
         ),
       );
     };
@@ -143,7 +147,7 @@ function waitForDevice(
       fail(
         playbackFailure(
           'device',
-          'The Spotify player did not become ready in time.',
+          'Der Spotify-Player wurde nicht rechtzeitig bereit.',
         ),
       );
     }, timeoutMs);
@@ -154,7 +158,7 @@ function waitForDevice(
         fail(
           playbackFailure(
             'device',
-            'Spotify did not provide a playback device.',
+            'Spotify hat kein Wiedergabegerät bereitgestellt.',
           ),
         );
         return;
@@ -163,14 +167,17 @@ function waitForDevice(
     });
     player.addListener('authentication_error', () => {
       report(
-        playbackFailure('auth', 'Spotify rejected the session. Sign in again.'),
+        playbackFailure(
+          'auth',
+          'Spotify hat die Sitzung abgelehnt. Bitte erneut anmelden.',
+        ),
       );
     });
     player.addListener('account_error', () => {
       report(
         playbackFailure(
           'premium',
-          'Spotify playback requires a Premium account.',
+          'Spotify-Wiedergabe erfordert ein Premium-Konto.',
         ),
       );
     });
@@ -178,7 +185,7 @@ function waitForDevice(
       report(
         playbackFailure(
           'unsupported',
-          'This browser cannot play Spotify audio.',
+          'Dieser Browser kann Spotify-Audio nicht abspielen.',
         ),
       );
     });
@@ -186,12 +193,12 @@ function waitForDevice(
       report(
         playbackFailure(
           'device',
-          'The Spotify playback device is unavailable.',
+          'Das Spotify-Wiedergabegerät ist nicht verfügbar.',
         ),
       );
     });
     player.addListener('playback_error', () => {
-      report(playbackFailure('playback', 'Spotify playback failed.'));
+      report(playbackFailure('playback', 'Spotify-Wiedergabe fehlgeschlagen.'));
     });
 
     void tokenFailure.catch((error: PlaybackError) => fail(error));
@@ -200,12 +207,18 @@ function waitForDevice(
       .then((connected) => {
         if (!connected)
           fail(
-            playbackFailure('device', 'The Spotify player could not connect.'),
+            playbackFailure(
+              'device',
+              'Der Spotify-Player konnte keine Verbindung herstellen.',
+            ),
           );
       })
       .catch(() =>
         fail(
-          playbackFailure('device', 'The Spotify player could not connect.'),
+          playbackFailure(
+            'device',
+            'Der Spotify-Player konnte keine Verbindung herstellen.',
+          ),
         ),
       );
   });
@@ -252,13 +265,25 @@ export class SpotifyWebPlayback implements PlaybackPort {
             rejectToken(
               playbackFailure(
                 'auth',
-                'Spotify sign-in expired. Sign in again.',
+                'Die Spotify-Anmeldung ist abgelaufen. Bitte erneut anmelden.',
               ),
             ),
           );
       },
     });
     this.player = player;
+
+    // Spotify requires this call from a user gesture in browsers that gate
+    // autoplay/audio contexts. The diagnostic button and Play action both
+    // originate from a user gesture, so use it before connecting the device.
+    try {
+      await player.activateElement?.();
+    } catch {
+      throw playbackFailure(
+        'unsupported',
+        'Dieser Browser kann Spotify-Audio nicht abspielen.',
+      );
+    }
 
     const deviceId = await waitForDevice(
       player,
@@ -280,7 +305,7 @@ export class SpotifyWebPlayback implements PlaybackPort {
     if (!target.uri || target.uri === 'unknown') {
       throw playbackFailure(
         'playback',
-        'The current round has no valid Spotify track URI.',
+        'Die aktuelle Runde enthält keine gültige Spotify-Titel-URI.',
       );
     }
     const deviceId = await this.connect();
@@ -307,24 +332,31 @@ export class SpotifyWebPlayback implements PlaybackPort {
     } catch {
       throw playbackFailure(
         'playback',
-        'Could not reach Spotify to start the track.',
+        'Spotify konnte zum Starten des Titels nicht erreicht werden.',
       );
     }
     if (response.status === 401) {
       throw playbackFailure(
         'auth',
-        'Spotify rejected the session. Sign in again.',
+        'Spotify hat die Sitzung abgelehnt. Bitte erneut anmelden.',
       );
     }
     if (response.status === 403) {
       throw playbackFailure(
         'premium',
-        'Spotify playback requires a Premium account.',
+        'Spotify-Wiedergabe erfordert ein Premium-Konto.',
       );
     }
     if (!response.ok && response.status !== 204) {
-      throw playbackFailure('playback', 'Spotify refused to start the track.');
+      throw playbackFailure(
+        'playback',
+        'Spotify hat den Titelstart abgelehnt.',
+      );
     }
+  }
+
+  async testConnection(): Promise<void> {
+    await this.connect();
   }
 
   async pause(): Promise<void> {

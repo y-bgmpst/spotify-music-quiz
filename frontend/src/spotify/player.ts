@@ -23,6 +23,8 @@ export interface PlaybackPort {
   /** Human-readable capability label, rendered in the UI. */
   readonly kind: 'stub' | 'spotify' | 'unavailable';
   start(target: PlaybackTarget): Promise<void>;
+  /** Connect the browser player without starting or changing a round. */
+  testConnection(): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   stop(): Promise<void>;
@@ -37,6 +39,10 @@ export class StubPlayback implements PlaybackPort {
   async start(target: PlaybackTarget): Promise<void> {
     this.last = target;
     this.calls.push('start');
+  }
+
+  async testConnection(): Promise<void> {
+    this.calls.push('testConnection');
   }
 
   async pause(): Promise<void> {
@@ -54,16 +60,19 @@ export class StubPlayback implements PlaybackPort {
 }
 
 export const PLAYBACK_UNAVAILABLE_NOTICE =
-  'No Spotify account is connected, so the quiz cannot play audio. ' +
-  'Play the track yourself; the quiz keeps time and score.';
+  'Kein Spotify-Konto verbunden. Das Quiz kann kein Audio abspielen. ' +
+  'Spiele den Titel selbst ab; das Quiz misst weiterhin Zeit und Punkte.';
 
 export const PLAYBACK_READY_NOTICE =
-  'Spotify is connected. Rounds play through this browser; Spotify Premium is required.';
+  'Spotify ist verbunden. Die Runden werden in diesem Browser abgespielt; Spotify Premium ist erforderlich.';
 
 /** Real playback must be wired explicitly; never hide a failed auth flow with fake audio. */
 export class UnavailablePlayback implements PlaybackPort {
   readonly kind = 'unavailable' as const;
   async start(_target: PlaybackTarget): Promise<void> {
+    throw new Error('Spotify Web Playback is not configured');
+  }
+  async testConnection(): Promise<void> {
     throw new Error('Spotify Web Playback is not configured');
   }
   async pause(): Promise<void> {}
@@ -76,7 +85,7 @@ export function createPlayback(
     const response = await fetch('/api/v1/auth/token', {
       credentials: 'include',
     });
-    if (!response.ok) throw new Error('Spotify authentication is required');
+    if (!response.ok) throw new Error('Spotify-Anmeldung erforderlich');
     const body = (await response.json()) as { access_token: string };
     return body.access_token;
   },

@@ -17,7 +17,7 @@ describe('DesktopIcons', () => {
 
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(
-      screen.getByRole('list', { name: /desktop shortcuts/i }),
+      screen.getByRole('list', { name: /desktop-verknüpfungen/i }),
     ).toBeInTheDocument();
   });
 });

@@ -1,8 +1,8 @@
 # Final Live Spotify Test Handoff
 
-Stand: 2026-08-10  
-Branch: `agent/oauth-session-ci-debug-pr`  
-HEAD: `b4080d129d2137729a24c7fba0c347ab4c04c37f`
+Stand: 2026-08-16
+Branch: `agent/oauth-session-ci-debug-pr`
+OAuth checkpoint: `d02a4f4`
 
 ## Status
 
@@ -14,7 +14,9 @@ Automated checks are green:
 - `make verify`: passed
 - `git diff --check`: passed
 
-OAuth/session, explicit fake/real mode, real playlist selection, Web API pagination and retry hardening are implemented. No live Spotify credentials were entered or exposed.
+OAuth/session, explicit fake/real mode, real playlist selection, eligibility
+analysis, Web API pagination and retry hardening are implemented. No live
+Spotify credentials were entered or exposed.
 
 ## Start for tomorrow
 
@@ -55,9 +57,11 @@ Do not print or copy values from `.env`.
 3. Confirm the browser returns to the frontend with a connected message.
 4. Check `/api/v1/auth/status` in the browser network panel; it must return `authenticated: true`.
 5. Reload the page; connected state must remain visible.
-6. Confirm real Spotify playlists load and select an actual playlist.
-7. Create a game and verify the request contains the selected real `playlist_id`, never `fake-playlist`.
-8. Start at least three rounds and verify `ready`, `device_id`, playback, pause, resume, reveal and next-round behavior.
+6. Confirm real Spotify playlists load, select an actual playlist, and run its eligibility analysis.
+7. Confirm the summary shows total, eligible unique, duplicate, unavailable, and too-short counts.
+8. Continue to game setup only when at least one eligible track is available.
+9. Create a game and verify the request contains the selected real `playlist_id`, never `fake-playlist`.
+10. Start at least three rounds and verify `ready`, `device_id`, playback, pause, resume, reveal and next-round behavior.
 9. Before Reveal, inspect the DOM and network response: title, artist, album, cover and answer metadata must remain concealed.
 10. Reveal the answer and verify metadata appears only then.
 11. Test logout. `/auth/status` must become false, `/auth/token` must return 401, and reload must remain signed out.

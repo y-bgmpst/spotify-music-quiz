@@ -40,6 +40,53 @@ def test_playlist_items_follow_all_pages_without_a_500_item_cap() -> None:
     assert len(items) == 502
 
 
+def test_playlist_items_support_current_items_response_shape() -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "items": [
+                {
+                    "item": {
+                        "uri": "spotify:track:current",
+                        "name": "Current track",
+                        "duration_ms": 180000,
+                        "artists": [{"name": "Artist"}],
+                        "album": {"name": "Album", "images": []},
+                    }
+                }
+            ],
+            "next": None,
+        },
+    )
+
+    assert catalog_with([response]).playlist_items("playlist")[0]["uri"] == (
+        "spotify:track:current"
+    )
+
+
+def test_playlist_items_skip_tracks_spotify_marks_unplayable() -> None:
+    response = httpx.Response(
+        200,
+        json={
+            "items": [
+                {
+                    "item": {
+                        "uri": "spotify:track:blocked",
+                        "name": "Blocked track",
+                        "duration_ms": 180000,
+                        "is_playable": False,
+                        "artists": [{"name": "Artist"}],
+                        "album": {"name": "Album", "images": []},
+                    }
+                }
+            ],
+            "next": None,
+        },
+    )
+
+    assert catalog_with([response]).playlist_items("playlist") == []
+
+
 def test_429_respects_retry_after_and_is_bounded() -> None:
     delays: list[float] = []
     catalog = catalog_with(
@@ -81,3 +128,35 @@ def test_401_refreshes_once_before_retrying() -> None:
 
     assert catalog.playlist_items("playlist") == []
     assert refreshed == [True]
+
+
+def test_playlists_map_current_items_count_and_cover() -> None:
+    catalog = catalog_with(
+        [
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "playlist",
+                            "name": "Live playlist",
+                            "owner": {"display_name": "Host"},
+                            "items": {"total": 30},
+                            "images": [{"url": "https://example.test/cover.jpg"}],
+                        }
+                    ],
+                    "next": None,
+                },
+            )
+        ]
+    )
+
+    assert catalog.playlists() == [
+        {
+            "id": "playlist",
+            "name": "Live playlist",
+            "owner": "Host",
+            "total": 30,
+            "image_url": "https://example.test/cover.jpg",
+        }
+    ]

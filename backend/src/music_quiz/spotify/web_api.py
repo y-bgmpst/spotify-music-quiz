@@ -95,7 +95,20 @@ class SpotifyWebCatalog:
                 if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                     continue
                 owner = item.get("owner")
-                tracks = item.get("tracks")
+                tracks = item.get("tracks") or item.get("items")
+                images = item.get("images")
+                image_url = (
+                    next(
+                        (
+                            image["url"]
+                            for image in images
+                            if isinstance(image, dict) and isinstance(image.get("url"), str)
+                        ),
+                        None,
+                    )
+                    if isinstance(images, list)
+                    else None
+                )
                 result.append(
                     {
                         "id": item["id"],
@@ -106,6 +119,7 @@ class SpotifyWebCatalog:
                         "total": int((tracks or {}).get("total", 0))
                         if isinstance(tracks, dict)
                         else 0,
+                        "image_url": image_url,
                     }
                 )
             if not page.get("next"):
@@ -113,18 +127,25 @@ class SpotifyWebCatalog:
             offset += PAGE_LIMIT
         return result
 
-    def playlist_items(self, playlist_id: str) -> list[dict[str, object]]:
-        result: list[dict[str, object]] = []
+    def playlist_analysis(
+        self, playlist_id: str, excerpt_seconds: int, mode: str
+    ) -> dict[str, int]:
+        total_items = 0
+        duplicates_removed = 0
+        unavailable_or_unsupported = 0
+        too_short_for_excerpt = 0
+        unique_uris: set[str] = set()
         offset = 0
+        excerpt_ms = excerpt_seconds * 1000
         while True:
             page = self._get(
-                f"/playlists/{playlist_id}/tracks",
+                f"/playlists/{playlist_id}/items",
                 {
                     "limit": PAGE_LIMIT,
                     "offset": offset,
                     "additional_types": "track",
                     "fields": (
-                        "next,items(track(uri,name,duration_ms,explicit,"
+                        "next,items(item(uri,name,duration_ms,explicit,is_playable,"
                         "artists(name),album(name,images(url))))"
                     ),
                 },
@@ -133,7 +154,55 @@ class SpotifyWebCatalog:
             if not isinstance(items, list) or not items:
                 break
             for item in items:
-                track = item.get("track") if isinstance(item, dict) else None
+                total_items += 1
+                track = _track_from_playlist_item(item)
+                normalized = _normalize(track)
+                if normalized is None:
+                    unavailable_or_unsupported += 1
+                    continue
+                uri = normalized["uri"]
+                if not isinstance(uri, str) or uri in unique_uris:
+                    duplicates_removed += 1
+                    continue
+                unique_uris.add(uri)
+                duration = normalized.get("duration_ms")
+                if isinstance(duration, int) and (
+                    duration < excerpt_ms
+                    or (mode == "random" and duration < (15 + 20) * 1000 + excerpt_ms)
+                ):
+                    too_short_for_excerpt += 1
+            if not page.get("next"):
+                break
+            offset += PAGE_LIMIT
+        return {
+            "total_items": total_items,
+            "eligible_unique_tracks": len(unique_uris) - too_short_for_excerpt,
+            "duplicates_removed": duplicates_removed,
+            "unavailable_or_unsupported": unavailable_or_unsupported,
+            "too_short_for_excerpt": too_short_for_excerpt,
+        }
+
+    def playlist_items(self, playlist_id: str) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        offset = 0
+        while True:
+            page = self._get(
+                f"/playlists/{playlist_id}/items",
+                {
+                    "limit": PAGE_LIMIT,
+                    "offset": offset,
+                    "additional_types": "track",
+                    "fields": (
+                        "next,items(item(uri,name,duration_ms,explicit,is_playable,"
+                        "artists(name),album(name,images(url))))"
+                    ),
+                },
+            )
+            items = page.get("items")
+            if not isinstance(items, list) or not items:
+                break
+            for item in items:
+                track = _track_from_playlist_item(item)
                 normalized = _normalize(track)
                 if normalized is not None:
                     result.append(normalized)
@@ -152,8 +221,16 @@ def _retry_after(response: httpx.Response, attempt: int, *, fallback: float = 1.
     return max(0.0, min(delay, 30.0))
 
 
+def _track_from_playlist_item(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return None
+    return item.get("item") or item.get("track")
+
+
 def _normalize(track: Any) -> dict[str, object] | None:
     if not isinstance(track, dict):
+        return None
+    if track.get("is_playable") is False:
         return None
     uri = track.get("uri")
     duration = track.get("duration_ms")

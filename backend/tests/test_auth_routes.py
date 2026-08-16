@@ -42,6 +42,11 @@ def test_login_redirects_to_spotify_and_records_state(api) -> None:
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "SameSite=lax" in response.headers["set-cookie"]
     assert "Path=/" in response.headers["set-cookie"]
+    assert set(parse_qs(urlparse(location).query)["scope"][0].split()) >= {
+        "streaming",
+        "user-read-email",
+        "user-read-private",
+    }
 
 
 def test_callback_with_valid_state_exchanges_code_and_redirects(api, monkeypatch) -> None:

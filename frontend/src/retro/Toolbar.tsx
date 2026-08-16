@@ -4,7 +4,7 @@ export interface ToolbarAction {
   id: string;
   /** Short Netscape-style caption. */
   label: string;
-  /** Full accessible name, e.g. "Reveal answer". */
+  /** Full accessible name, e.g. "Antwort aufdecken". */
   description: string;
   icon: RetroIconName;
   onSelect: () => void;
@@ -28,7 +28,7 @@ export function Toolbar({ actions }: ToolbarProps) {
     <div
       className="retro-toolbar"
       role="toolbar"
-      aria-label="Quiz controls"
+      aria-label="Quiz-Steuerung"
       aria-orientation="horizontal"
     >
       {actions.map((action) => (
