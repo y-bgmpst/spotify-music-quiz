@@ -42,6 +42,7 @@ def main():
         host='127.0.0.1',
         port=8000,
         log_level='info',
+        access_log=False,
     )
 
 if __name__ == '__main__':

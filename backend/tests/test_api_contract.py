@@ -184,3 +184,14 @@ def test_cors_preflight_does_not_wildcard(api) -> None:
     )
 
     assert response.headers.get("access-control-allow-origin") != "*"
+
+
+def test_live_playlist_endpoint_requires_an_authenticated_session(api, monkeypatch) -> None:
+    client, main = api
+    from dataclasses import replace
+
+    monkeypatch.setattr(main, "settings", replace(main.settings, fake_spotify=False))
+    response = client.get("/api/v1/playlists")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "spotify_not_authenticated"

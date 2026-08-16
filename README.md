@@ -78,7 +78,7 @@ Do not put a Spotify Client Secret in this project or in frontend code.
 Start the backend:
 
 ```bash
-.venv/bin/uvicorn music_quiz.main:app --reload --app-dir backend/src
+.venv/bin/uvicorn music_quiz.main:app --reload --no-access-log --app-dir backend/src
 ```
 
 In another terminal, start the frontend:
@@ -87,7 +87,10 @@ In another terminal, start the frontend:
 npm --prefix frontend run dev
 ```
 
-Open <http://127.0.0.1:5173>.
+Open <http://127.0.0.1:5173>. The backend loads local values from `.env` via
+`python-dotenv`; process environment variables take precedence. Keep `.env`
+local and untracked. Access logging is disabled so OAuth callback query values
+cannot enter request logs.
 
 Without Spotify credentials, use the fake playlist to exercise the game flow. The local database is stored at `.data/quiz.db` by default.
 

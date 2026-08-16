@@ -144,6 +144,7 @@ export async function request<T>(
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method,
+      credentials: 'include',
       signal: controller.signal,
       headers:
         body === undefined ? undefined : { 'content-type': 'application/json' },

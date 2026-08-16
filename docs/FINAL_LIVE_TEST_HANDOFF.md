@@ -24,7 +24,7 @@ Terminal 1 — real backend:
 
 ```bash
 FAKE_SPOTIFY=false FRONTEND_ORIGIN=http://127.0.0.1:5173 \
-  .venv/bin/uvicorn music_quiz.main:app --app-dir backend/src \
+  .venv/bin/uvicorn music_quiz.main:app --app-dir backend/src --no-access-log \
   --host 127.0.0.1 --port 8000
 ```
 

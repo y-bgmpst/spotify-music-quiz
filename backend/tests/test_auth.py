@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -63,6 +64,7 @@ def test_oauth_state_cannot_be_consumed_from_another_session() -> None:
         repo = TokenRepository(db_path)
         repo.save_oauth_state("state-a", "verifier-a", "session-a")
         assert repo.consume_oauth_state("state-a", "session-b") is None
+        assert repo.consume_oauth_state("state-a", "session-a") == "verifier-a"
     finally:
         Path(db_path).unlink(missing_ok=True)
 
@@ -73,3 +75,22 @@ def test_oauth_callback_is_registered_as_a_fastapi_route() -> None:
     assert any(
         route.path == "/api/v1/auth/callback" and "GET" in route.methods for route in app.routes
     )
+
+
+def test_concurrent_oauth_consumes_have_exactly_one_winner() -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as handle:
+        db_path = handle.name
+    try:
+        first = TokenRepository(db_path)
+        second = TokenRepository(db_path)
+        first.save_oauth_state("race", "verifier", "session")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(
+                    lambda repo: repo.consume_oauth_state("race", "session"),
+                    (first, second),
+                )
+            )
+        assert sorted(result is not None for result in results) == [False, True]
+    finally:
+        Path(db_path).unlink(missing_ok=True)

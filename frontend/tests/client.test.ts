@@ -29,6 +29,7 @@ describe('api client', () => {
 
     const [, init] = fetchMock().mock.calls[0] as [string, RequestInit];
     expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
     expect(init.headers).toEqual({ 'content-type': 'application/json' });
     expect(init.body).toBe(JSON.stringify({ rounds: 3 }));
   });

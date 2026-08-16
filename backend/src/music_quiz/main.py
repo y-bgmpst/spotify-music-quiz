@@ -6,7 +6,7 @@ import secrets
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Cookie, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -16,7 +16,6 @@ from music_quiz.auth_service import SpotifyAuthService, TokenRefreshError
 from music_quiz.config import Settings, load_settings
 from music_quiz.domain.game import DomainError, ExcerptMode, Game, GameConfig, GameStatus
 from music_quiz.errors import AppError, register_error_handlers
-from music_quiz.oauth_state import OAuthStateStore
 from music_quiz.persistence.sqlite import SQLiteGameRepository
 from music_quiz.persistence.tokens import SpotifyToken, TokenRepository
 from music_quiz.services import QuizService
@@ -49,12 +48,23 @@ auth_service = (
     else None
 )
 service = QuizService(FakeSpotifyCatalog(), repository)
-oauth_states = OAuthStateStore(settings.database_path, clock=settings.clock)
+SESSION_COOKIE_NAME = "spotify_quiz_session"
+SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
 FAKE_PLAYLIST_ID = "fake-playlist"
 
 
-def _spotify_token() -> SpotifyToken:
+def _session_user(session_id: str | None) -> str | None:
+    return token_repo.get_session_user(session_id)
+
+
+def _spotify_token(session_id: str | None) -> SpotifyToken:
+    if _session_user(session_id) is None:
+        raise AppError(
+            401,
+            "spotify_not_authenticated",
+            "Connect a Spotify account before starting playback.",
+        )
     if not auth_service:
         raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
     try:
@@ -75,11 +85,13 @@ def _spotify_token() -> SpotifyToken:
     return token
 
 
-def _access_token() -> str:
-    return _spotify_token().access_token
+def _access_token(session_id: str | None) -> str:
+    return _spotify_token(session_id).access_token
 
 
-def _has_spotify_session() -> bool:
+def _has_spotify_session(session_id: str | None) -> bool:
+    if _session_user(session_id) is None:
+        return False
     if not auth_service:
         return False
     try:
@@ -89,10 +101,16 @@ def _has_spotify_session() -> bool:
     return token is not None and not token.is_expired()
 
 
-def current_catalog() -> SpotifyCatalog:
-    if _has_spotify_session():
-        return SpotifyWebCatalog(_access_token)
-    return service.catalog
+def current_catalog(session_id: str | None) -> SpotifyCatalog:
+    if settings.fake_spotify:
+        return service.catalog
+    if _has_spotify_session(session_id):
+        return SpotifyWebCatalog(lambda: _access_token(session_id))
+    raise AppError(
+        401,
+        "spotify_not_authenticated",
+        "Connect a Spotify account before reading Spotify data.",
+    )
 
 
 class ConfigInput(BaseModel):
@@ -190,9 +208,11 @@ def config_status() -> dict[str, object]:
 
 
 @app.get("/api/v1/auth/status")
-def auth_status() -> dict[str, bool]:
+def auth_status(spotify_quiz_session: str | None = Cookie(default=None)) -> dict[str, bool]:
     if not auth_service:
         return {"authenticated": False, "configured": False}
+    if _session_user(spotify_quiz_session) is None:
+        return {"authenticated": False, "configured": True}
     try:
         token = auth_service.get_default_token()
     except TokenRefreshError:
@@ -204,13 +224,30 @@ def auth_status() -> dict[str, bool]:
 
 
 @app.get("/api/v1/auth/login")
-def login() -> RedirectResponse:
+def login(spotify_quiz_session: str | None = Cookie(default=None)) -> RedirectResponse:
     if not settings.spotify_client_id:
         raise AppError(503, "spotify_not_configured", "Spotify is not configured on this server.")
+    session_id = spotify_quiz_session
+    new_session = False
+    if _session_user(session_id) is None:
+        session_id = token_repo.create_session(max_age=SESSION_MAX_AGE)
+        new_session = True
+    assert session_id is not None
     auth_state = AuthState(secrets.token_urlsafe(32), secrets.token_urlsafe(64))
-    oauth_states.put(auth_state)
+    token_repo.save_oauth_state(auth_state.state, auth_state.verifier, session_id)
     url = authorization_url(settings.spotify_client_id, settings.redirect_uri, auth_state)
-    return RedirectResponse(url, status_code=307)
+    redirect = RedirectResponse(url, status_code=307)
+    if new_session:
+        redirect.set_cookie(
+            SESSION_COOKIE_NAME,
+            session_id,
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=settings.session_cookie_secure,
+            path="/",
+        )
+    return redirect
 
 
 def _auth_redirect(params: str) -> RedirectResponse:
@@ -219,10 +256,13 @@ def _auth_redirect(params: str) -> RedirectResponse:
 
 @app.get("/api/v1/auth/callback")
 def callback(
-    code: str | None = None, state: str | None = None, error: str | None = None
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    spotify_quiz_session: str | None = Cookie(default=None),
 ) -> RedirectResponse:
-    auth_state = oauth_states.consume(state)
-    if auth_state is None:
+    verifier = token_repo.consume_oauth_state(state, spotify_quiz_session)
+    if verifier is None:
         logger.warning("oauth_callback_rejected reason=state_not_consumable")
         return _auth_redirect("auth_error=invalid_state")
     if error:
@@ -233,19 +273,32 @@ def callback(
         return _auth_redirect("auth_error=not_configured")
 
     try:
-        auth_service.exchange_code(code, settings.redirect_uri, auth_state.verifier)
+        auth_service.exchange_code(code, settings.redirect_uri, verifier)
     except TokenRefreshError as exc:
         logger.warning("oauth_token_exchange_failed cause=%s", type(exc).__name__)
         return _auth_redirect("auth_error=exchange_failed")
     except Exception as exc:  # noqa: BLE001
         logger.exception("oauth_callback_unexpected type=%s", type(exc).__name__)
         return _auth_redirect("auth_error=unexpected")
-    return _auth_redirect("authenticated=1")
+    if spotify_quiz_session is None:
+        return _auth_redirect("auth_error=invalid_state")
+    new_session = token_repo.rotate_session(spotify_quiz_session, max_age=SESSION_MAX_AGE)
+    redirect = _auth_redirect("auth_callback=success")
+    redirect.set_cookie(
+        SESSION_COOKIE_NAME,
+        new_session,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=settings.session_cookie_secure,
+        path="/",
+    )
+    return redirect
 
 
 @app.get("/api/v1/auth/token")
-def auth_token() -> dict[str, object]:
-    token = _spotify_token()
+def auth_token(spotify_quiz_session: str | None = Cookie(default=None)) -> dict[str, object]:
+    token = _spotify_token(spotify_quiz_session)
     return {
         "access_token": token.access_token,
         "expires_at": token.expires_at,
@@ -254,17 +307,21 @@ def auth_token() -> dict[str, object]:
 
 
 @app.post("/api/v1/auth/logout")
-def logout() -> dict[str, bool]:
-    oauth_states.clear()
+def logout(
+    response: Response, spotify_quiz_session: str | None = Cookie(default=None)
+) -> dict[str, bool]:
+    token_repo.clear_oauth_states(spotify_quiz_session)
+    token_repo.delete_session(spotify_quiz_session)
     if auth_service:
         auth_service.revoke_token()
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return {"authenticated": False}
 
 
 @app.get("/api/v1/playlists")
-def playlists() -> list[dict[str, object]]:
+def playlists(spotify_quiz_session: str | None = Cookie(default=None)) -> list[dict[str, object]]:
     try:
-        return current_catalog().playlists()
+        return current_catalog(spotify_quiz_session).playlists()
     except CatalogError as exc:
         raise AppError(
             502, "spotify_unavailable", "Could not read your Spotify playlists.", cause=exc
@@ -272,9 +329,11 @@ def playlists() -> list[dict[str, object]]:
 
 
 @app.get("/api/v1/playlists/{playlist_id}/analysis")
-def analysis(playlist_id: str) -> dict[str, int]:
+def analysis(
+    playlist_id: str, spotify_quiz_session: str | None = Cookie(default=None)
+) -> dict[str, int]:
     try:
-        items = current_catalog().playlist_items(playlist_id)
+        items = current_catalog(spotify_quiz_session).playlist_items(playlist_id)
     except CatalogError as exc:
         raise AppError(
             502, "spotify_unavailable", "Could not read that Spotify playlist.", cause=exc
@@ -290,8 +349,10 @@ def analysis(playlist_id: str) -> dict[str, int]:
 
 
 @app.post("/api/v1/games")
-def create_game(body: ConfigInput) -> dict[str, object]:
-    catalog = current_catalog()
+def create_game(
+    body: ConfigInput, spotify_quiz_session: str | None = Cookie(default=None)
+) -> dict[str, object]:
+    catalog = current_catalog(spotify_quiz_session)
     playlist_id = body.playlist_id
     if isinstance(catalog, FakeSpotifyCatalog):
         playlist_id = FAKE_PLAYLIST_ID

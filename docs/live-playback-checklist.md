@@ -22,7 +22,7 @@ This checklist covers manual verification of Spotify Web Playback SDK integratio
   - `SPOTIFY_CLIENT_ID` - valid OAuth app client ID
   - `SPOTIFY_REDIRECT_URI` - matches registered callback in Spotify Dashboard
   - `FRONTEND_ORIGIN` - matches frontend dev server URL
-- [ ] Backend server running: `.venv/bin/uvicorn music_quiz.main:app --reload --app-dir backend/src`
+- [ ] Backend server running: `.venv/bin/uvicorn music_quiz.main:app --reload --no-access-log --app-dir backend/src`
 - [ ] Frontend dev server running: `npm --prefix frontend run dev`
 - [ ] Backend health check responds: `curl http://127.0.0.1:8000/api/v1/health`
 

@@ -159,9 +159,9 @@ class TokenRepository:
             )
             conn.commit()
 
-    def consume_oauth_state(self, state: str, session_id: str | None) -> str | None:
+    def consume_oauth_state(self, state: str | None, session_id: str | None) -> str | None:
         """Atomically consume a non-expired state only from its original session."""
-        if not session_id:
+        if not state or not session_id:
             return None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -172,14 +172,27 @@ class TokenRepository:
             if row is None:
                 conn.rollback()
                 return None
-            conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
-            conn.commit()
             if not row[1] or not hmac.compare_digest(str(row[1]), self._session_hash(session_id)):
+                conn.rollback()
                 return None
             created_at = datetime.fromisoformat(str(row[2])).timestamp()
             if time.time() - created_at > self.OAUTH_STATE_TTL_SECONDS:
+                conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+                conn.commit()
                 return None
+            conn.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+            conn.commit()
             return str(row[0])
+
+    def clear_oauth_states(self, session_id: str | None) -> None:
+        if not session_id:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM oauth_states WHERE session_hash = ?",
+                (self._session_hash(session_id),),
+            )
+            conn.commit()
 
     def create_session(self, user_id: str = "default", max_age: int = 30 * 24 * 60 * 60) -> str:
         """Create an opaque browser session and store only its hash."""
@@ -194,6 +207,34 @@ class TokenRepository:
             )
             conn.commit()
         return session_id
+
+    def rotate_session(self, session_id: str, max_age: int = 30 * 24 * 60 * 60) -> str:
+        """Rotate a session while preserving its pending OAuth states."""
+        new_session = secrets.token_urlsafe(32)
+        old_hash = self._session_hash(session_id)
+        new_hash = self._session_hash(new_session)
+        now = int(time.time())
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            user = conn.execute(
+                "SELECT user_id FROM auth_sessions WHERE session_hash = ?",
+                (old_hash,),
+            ).fetchone()
+            if user is None:
+                conn.rollback()
+                raise ValueError("session is not active")
+            conn.execute(
+                "INSERT INTO auth_sessions (session_hash, user_id, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (new_hash, user[0], datetime.now(timezone.utc).isoformat(), now + max_age),
+            )
+            conn.execute(
+                "UPDATE oauth_states SET session_hash = ? WHERE session_hash = ?",
+                (new_hash, old_hash),
+            )
+            conn.execute("DELETE FROM auth_sessions WHERE session_hash = ?", (old_hash,))
+            conn.commit()
+        return new_session
 
     def get_session_user(self, session_id: str | None) -> str | None:
         """Return the session user when the opaque cookie is present and unexpired."""
