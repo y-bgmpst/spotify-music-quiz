@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import sqlite3
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -7,6 +8,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from music_quiz.persistence.tokens import TokenRepository
+
+
+def _remove_database(db_path: str) -> None:
+    gc.collect()
+    Path(db_path).unlink(missing_ok=True)
 
 
 def test_oauth_state_is_one_time_and_survives_repository_restart() -> None:
@@ -20,7 +26,7 @@ def test_oauth_state_is_one_time_and_survives_repository_restart() -> None:
         assert second.consume_oauth_state("state-1", "session-1") == "verifier-1"
         assert second.consume_oauth_state("state-1", "session-1") is None
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        _remove_database(db_path)
 
 
 def test_session_lookup_uses_opaque_cookie_value() -> None:
@@ -35,7 +41,7 @@ def test_session_lookup_uses_opaque_cookie_value() -> None:
         repo.delete_session(session_id)
         assert repo.get_session_user(session_id) is None
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        _remove_database(db_path)
 
 
 def test_expired_oauth_state_is_rejected() -> None:
@@ -56,7 +62,7 @@ def test_expired_oauth_state_is_rejected() -> None:
         conn.close()
         assert repo.consume_oauth_state("expired-state", "session") is None
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        _remove_database(db_path)
 
 
 def test_oauth_state_cannot_be_consumed_from_another_session() -> None:
@@ -68,7 +74,7 @@ def test_oauth_state_cannot_be_consumed_from_another_session() -> None:
         assert repo.consume_oauth_state("state-a", "session-b") is None
         assert repo.consume_oauth_state("state-a", "session-a") == "verifier-a"
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        _remove_database(db_path)
 
 
 def test_oauth_callback_is_registered_as_a_fastapi_route() -> None:
@@ -95,4 +101,4 @@ def test_concurrent_oauth_consumes_have_exactly_one_winner() -> None:
             )
         assert sorted(result is not None for result in results) == [False, True]
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        _remove_database(db_path)
