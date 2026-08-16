@@ -227,6 +227,8 @@ def _retry_after(response: httpx.Response, attempt: int, *, fallback: float = 1.
 def _playlist_items_path(playlist_id: str) -> str:
     if PLAYLIST_ID_PATTERN.fullmatch(playlist_id) is None:
         raise CatalogError("Spotify playlist id is invalid.", status_code=400)
+    # The fixed API origin and strict Spotify ID allowlist prevent host/path injection.
+    # lgtm[py/partial-ssrf]
     return f"/playlists/{quote(playlist_id, safe='')}/items"
 
 
