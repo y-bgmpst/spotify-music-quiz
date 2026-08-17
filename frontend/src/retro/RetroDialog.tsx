@@ -18,7 +18,10 @@ function focusableWithin(root: HTMLElement): HTMLElement[] {
     root.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter(element => element.offsetParent !== null || element === document.activeElement);
+  ).filter(
+    (element) =>
+      element.offsetParent !== null || element === document.activeElement,
+  );
 }
 
 /**
@@ -56,7 +59,8 @@ export function RetroDialog({
       element.setAttribute('open', '');
     }
 
-    const target = initialFocusRef?.current ?? focusableWithin(element)[0] ?? element;
+    const target =
+      initialFocusRef?.current ?? focusableWithin(element)[0] ?? element;
     target.focus();
 
     return () => {
@@ -96,14 +100,17 @@ export function RetroDialog({
         aria-modal="true"
         aria-labelledby={`dialog-title-${title.replace(/\W+/g, '-')}`}
         onKeyDown={onKeyDown}
-        onCancel={event => {
+        onCancel={(event) => {
           event.preventDefault();
           onClose();
         }}
       >
         <div className="retro-titlebar retro-dialog-titlebar">
           <RetroIcon name={icon} />
-          <h2 className="retro-titlebar-text" id={`dialog-title-${title.replace(/\W+/g, '-')}`}>
+          <h2
+            className="retro-titlebar-text"
+            id={`dialog-title-${title.replace(/\W+/g, '-')}`}
+          >
             {title}
           </h2>
           <div className="retro-titlebar-buttons">
@@ -120,7 +127,11 @@ export function RetroDialog({
         <div className="retro-dialog-body">{children}</div>
         <div className="retro-dialog-footer">
           {footer ?? (
-            <button type="button" className="retro-button retro-button-default" onClick={onClose}>
+            <button
+              type="button"
+              className="retro-button retro-button-default"
+              onClick={onClose}
+            >
               OK
             </button>
           )}

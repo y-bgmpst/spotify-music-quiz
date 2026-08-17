@@ -16,6 +16,7 @@ def api(tmp_path, monkeypatch) -> Iterator[tuple[TestClient, object]]:
     monkeypatch.setenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8000/api/v1/auth/callback")
     monkeypatch.setenv("ADDITIONAL_ALLOWED_ORIGINS", "")
     monkeypatch.setenv("ALLOW_LOCALHOST_ORIGIN", "0")
+    monkeypatch.setenv("FAKE_SPOTIFY", "true")
 
     import music_quiz.main as main
 

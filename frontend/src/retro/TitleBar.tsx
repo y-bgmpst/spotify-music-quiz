@@ -38,8 +38,8 @@ export function TitleBar({
           className="retro-window-button"
           onClick={onMinimize}
           aria-pressed={minimized}
-          aria-label="Minimise window"
-          title="Minimise window"
+          aria-label="Fenster minimieren"
+          title="Fenster minimieren"
         >
           <span aria-hidden="true">_</span>
         </button>
@@ -48,8 +48,10 @@ export function TitleBar({
           className="retro-window-button"
           onClick={onMaximize}
           aria-pressed={focusMode}
-          aria-label={focusMode ? 'Leave focus mode' : 'Enter focus mode'}
-          title={focusMode ? 'Leave focus mode' : 'Enter focus mode'}
+          aria-label={
+            focusMode ? 'Fokusmodus verlassen' : 'Fokusmodus aktivieren'
+          }
+          title={focusMode ? 'Fokusmodus verlassen' : 'Fokusmodus aktivieren'}
         >
           <span aria-hidden="true">□</span>
         </button>
@@ -57,8 +59,8 @@ export function TitleBar({
           type="button"
           className="retro-window-button"
           onClick={onClose}
-          aria-label="Exit quiz"
-          title="Exit quiz"
+          aria-label="Quiz beenden"
+          title="Quiz beenden"
         >
           <span aria-hidden="true">×</span>
         </button>

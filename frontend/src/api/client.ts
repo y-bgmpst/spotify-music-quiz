@@ -47,6 +47,22 @@ export interface Game {
   playback?: { uri?: string; position_ms: number };
 }
 
+export interface SpotifyPlaylist {
+  id: string;
+  name: string;
+  owner: string;
+  total: number;
+  image_url?: string | null;
+}
+
+export interface PlaylistAnalysis {
+  total_items: number;
+  eligible_unique_tracks: number;
+  duplicates_removed: number;
+  unavailable_or_unsupported: number;
+  too_short_for_excerpt: number;
+}
+
 export interface AuthStatus {
   authenticated: boolean;
   configured: boolean;
@@ -74,7 +90,12 @@ export class ApiError extends Error {
   readonly status?: number;
   readonly code?: string;
 
-  constructor(kind: ApiErrorKind, message: string, status?: number, code?: string) {
+  constructor(
+    kind: ApiErrorKind,
+    message: string,
+    status?: number,
+    code?: string,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.kind = kind;
@@ -85,7 +106,8 @@ export class ApiError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
-const baseUrl: string = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api/v1';
+const baseUrl: string =
+  import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000/api/v1';
 
 interface ErrorEnvelope {
   error?: { code?: string; message?: string };
@@ -97,7 +119,7 @@ function messageFor(status: number, envelope: ErrorEnvelope | null): string {
   if (status === 404) return 'That item no longer exists.';
   if (status === 409) return 'That action is not allowed right now.';
   if (status >= 500) return 'The quiz server had a problem. Please try again.';
-  return 'The quiz server rejected the request.';
+  return 'Der Quizserver hat die Anfrage abgelehnt.';
 }
 
 export interface RequestOptions {
@@ -108,8 +130,16 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+export async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const {
+    method = 'GET',
+    body,
+    signal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  } = options;
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
@@ -123,8 +153,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method,
+      credentials: 'include',
       signal: controller.signal,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers:
+        body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -134,7 +166,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (timedOut || controller.signal.aborted) {
       throw new ApiError('timeout', 'The quiz server did not respond in time.');
     }
-    throw new ApiError('network', 'Cannot reach the quiz server. Is the backend running?');
+    throw new ApiError(
+      'network',
+      'Cannot reach the quiz server. Is the backend running?',
+    );
   } finally {
     clearTimeout(timeout);
     clearTimeout(timeoutWatcher);
@@ -159,7 +194,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   try {
     return (await response.json()) as T;
   } catch {
-    throw new ApiError('malformed', 'The quiz server sent an unreadable response.');
+    throw new ApiError(
+      'malformed',
+      'The quiz server sent an unreadable response.',
+    );
   }
 }
 
@@ -169,21 +207,49 @@ export const api = {
   health: (init?: RequestOptions) =>
     request<{ status: string; spotify_configured: boolean }>('/health', init),
   config: (init?: RequestOptions) => request<ConfigStatus>('/config', init),
-  authStatus: (init?: RequestOptions) => request<AuthStatus>('/auth/status', init),
+  authStatus: (init?: RequestOptions) =>
+    request<AuthStatus>('/auth/status', init),
   loginUrl: () => `${baseUrl}/auth/login`,
-  accessToken: (init?: RequestOptions) => request<AccessToken>('/auth/token', init),
+  accessToken: (init?: RequestOptions) =>
+    request<AccessToken>('/auth/token', init),
+  logout: (init?: RequestOptions) =>
+    request<{ authenticated: boolean }>('/auth/logout', {
+      ...init,
+      method: 'POST',
+    }),
+  playlists: (init?: RequestOptions) =>
+    request<SpotifyPlaylist[]>('/playlists', init),
+  playlistAnalysis: (
+    playlistId: string,
+    excerptSeconds: number,
+    mode: 'intro' | 'random' = 'intro',
+    init?: RequestOptions,
+  ) =>
+    request<PlaylistAnalysis>(
+      `/playlists/${encodeURIComponent(playlistId)}/analysis?excerpt_seconds=${excerptSeconds}&mode=${mode}`,
+      init,
+    ),
   create: (body: Record<string, unknown>, init?: RequestOptions) =>
     request<Game>('/games', { ...init, method: 'POST', body }),
-  get: (id: string, init?: RequestOptions) => request<Game>(`/games/${id}`, init),
+  get: (id: string, init?: RequestOptions) =>
+    request<Game>(`/games/${id}`, init),
   command: (id: string, command: RoundCommand, init?: RequestOptions) =>
     request<Game>(`/games/${id}/round/${command}`, { ...init, method: 'POST' }),
   awardScore: (
     id: string,
-    body: { participant_id: string; points: number; reason: string; event_id?: string },
+    body: {
+      participant_id: string;
+      points: number;
+      reason: string;
+      event_id?: string;
+    },
     init?: RequestOptions,
   ) => request<Game>(`/games/${id}/scores`, { ...init, method: 'POST', body }),
   reverseScore: (id: string, eventId: string, init?: RequestOptions) =>
-    request<Game>(`/games/${id}/scores/${eventId}/reverse`, { ...init, method: 'POST' }),
+    request<Game>(`/games/${id}/scores/${eventId}/reverse`, {
+      ...init,
+      method: 'POST',
+    }),
 };
 
 /** Narrow an unknown catch value to a message that is safe to display. */

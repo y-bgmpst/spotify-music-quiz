@@ -25,7 +25,7 @@ export interface StartMenuItem {
  */
 export function DesktopIcons({ shortcuts }: { shortcuts: DesktopShortcut[] }) {
   return (
-    <ul className="desktop-icons" aria-label="Desktop shortcuts">
+    <ul className="desktop-icons" aria-label="Desktop-Verknüpfungen">
       {shortcuts.map((shortcut) => (
         <li key={shortcut.id}>
           <button
@@ -100,7 +100,7 @@ export function Taskbar({
         {open && (
           <div className="start-menu" role="menu" aria-label="Start">
             <p className="start-menu-spine" aria-hidden="true">
-              Music Quiz 95
+              Back to the 90s
             </p>
             <ul>
               {startItems.map((item) => (
@@ -137,7 +137,7 @@ export function Taskbar({
       </div>
 
       <div className="taskbar-tray">
-        <span className="visually-hidden">Current time: </span>
+        <span className="visually-hidden">Aktuelle Uhrzeit: </span>
         <span className="tray-clock">{clock}</span>
       </div>
     </div>

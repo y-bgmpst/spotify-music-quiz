@@ -37,6 +37,8 @@ class Settings:
     frontend_origin: str
     database_path: str
     allowed_origins: tuple[str, ...]
+    fake_spotify: bool = False
+    session_cookie_secure: bool = False
     problems: tuple[str, ...] = ()
     clock: Callable[[], float] = field(default=time.monotonic, repr=False, compare=False)
 
@@ -96,5 +98,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         frontend_origin=frontend_origin,
         database_path=env.get("DATABASE_PATH", DEFAULT_DATABASE_PATH),
         allowed_origins=deduped,
+        fake_spotify=env.get("FAKE_SPOTIFY", "false").lower() == "true",
+        session_cookie_secure=env.get("SESSION_COOKIE_SECURE", "0") == "1",
         problems=tuple(problems),
     )

@@ -20,7 +20,9 @@ test.describe('full game flow against the real backend', () => {
     await expect(page.getByText('Status: revealed')).toBeVisible();
 
     await page.getByRole('button', { name: 'Next round' }).click();
-    await expect(page.getByRole('heading', { name: /Round 2 of 3/ })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Round 2 of 3/ }),
+    ).toBeVisible();
     await expect(page.getByText('Status: ready')).toBeVisible();
   });
 
@@ -33,18 +35,25 @@ test.describe('full game flow against the real backend', () => {
     await expect(timer).toHaveText('0:03', { timeout: 5000 });
   });
 
-  test('the round survives a page reload because the backend owns the state', async ({ page }) => {
+  test('the round survives a page reload because the backend owns the state', async ({
+    page,
+  }) => {
     await createGame(page);
     await page.getByRole('button', { name: 'Start round' }).click();
     await page.getByRole('button', { name: 'Reveal answer' }).click();
-    const answer = await page.getByRole('heading', { level: 3 }).first().innerText();
+    const answer = await page
+      .getByRole('heading', { level: 3 })
+      .first()
+      .innerText();
 
     await page.reload();
 
     // A reload returns to setup: the app does not persist the game id in the
     // browser. This test documents that behaviour rather than asserting a
     // capability that does not exist.
-    await expect(page.getByRole('heading', { name: 'Set up the quiz' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Set up the quiz' }),
+    ).toBeVisible();
     expect(answer).toMatch(/Track \d+/);
   });
 
@@ -56,25 +65,37 @@ test.describe('full game flow against the real backend', () => {
     const teamRow = page.getByRole('row', { name: /Team A/ });
     await expect(teamRow).toContainText('0');
 
-    await page.getByRole('button', { name: /Award one point to Team A for the title/ }).click();
+    await page
+      .getByRole('button', { name: /Award one point to Team A for the title/ })
+      .click();
     await expect(teamRow).toContainText('1');
 
-    await page.getByRole('button', { name: /Award one point to Team A for the artist/ }).click();
+    await page
+      .getByRole('button', { name: /Award one point to Team A for the artist/ })
+      .click();
     await expect(teamRow).toContainText('2');
 
-    await page.getByRole('button', { name: /Undo 1 points for Team A/ }).first().click();
+    await page
+      .getByRole('button', { name: /Undo 1 points for Team A/ })
+      .first()
+      .click();
     await expect(teamRow).toContainText('1');
   });
 
-  test('a rejected action shows a readable error, not a stack trace', async ({ page }) => {
+  test('a rejected action shows a readable error, not a stack trace', async ({
+    page,
+  }) => {
     await createGame(page);
     // Force a 409 by replaying a stale command directly through the client.
-    await page.route('**/round/start', route =>
+    await page.route('**/round/start', (route) =>
       route.fulfill({
         status: 409,
         contentType: 'application/json',
         body: JSON.stringify({
-          error: { code: 'invalid_state_transition', message: 'cannot start from playing' },
+          error: {
+            code: 'invalid_state_transition',
+            message: 'cannot start from playing',
+          },
         }),
       }),
     );
@@ -86,7 +107,9 @@ test.describe('full game flow against the real backend', () => {
     await expect(alert).toBeFocused();
   });
 
-  test('answers stay concealed for the whole pre-reveal lifecycle', async ({ page }) => {
+  test('answers stay concealed for the whole pre-reveal lifecycle', async ({
+    page,
+  }) => {
     await createGame(page);
     await expectNoAnswerVisible(page);
 

@@ -1,4 +1,4 @@
-# Spotify Music Quiz — Windows 95 / Netscape Edition
+# Back to the 90s – Amt 16 Musikquiz
 
 A local-first music guessing game with a Windows 95 desktop and Netscape Navigator-inspired interface.
 
@@ -20,7 +20,7 @@ You do not need Python, Node.js, Git, or administrator rights for the packaged v
 5. Open the extracted folder and double-click `launcher.bat`.
 6. The quiz opens in your browser at <http://127.0.0.1:8000/frontend/>.
 
-The demo works without Spotify login. It uses fake tracks so you can test the game immediately. For live Spotify features, open the bundled `.env` file with Notepad and enter your Spotify Client ID; never add a Client Secret.
+The demo works without Spotify login when `FAKE_SPOTIFY=true`. It uses fake tracks so you can test the game immediately. In real mode the app never silently falls back to fake playback/catalog behavior when authentication is missing. For live Spotify features, open the bundled `.env` file with Notepad and enter your Spotify Client ID; never add a Client Secret.
 
 ### If something goes wrong
 
@@ -31,7 +31,7 @@ The demo works without Spotify login. It uses fake tracks so you can test the ga
 
 ## Current status
 
-The game engine, SQLite persistence, OAuth PKCE helpers, fake Spotify catalog, scoring, and automated tests are implemented. Automated development uses fake tracks. Live Spotify Web Playback SDK wiring and production playlist loading still require manual integration and verification.
+The game engine, SQLite persistence, OAuth PKCE helpers, fake adapter, Spotify Web API catalog, authenticated playlist selection and eligibility analysis, Web Playback SDK adapter, scoring, and automated tests are implemented. Automated development uses explicit fake mode; real Spotify OAuth and playlist loading have been manually verified. Audio playback still requires a separate live verification. The Web API adapter follows playlist pagination and uses bounded 401 refresh, 429, and 5xx retry handling.
 
 The standalone playlist import script can search Spotify and create a private playlist. It uses a persistent search cache and conservative rate-limit handling.
 
@@ -78,7 +78,7 @@ Do not put a Spotify Client Secret in this project or in frontend code.
 Start the backend:
 
 ```bash
-.venv/bin/uvicorn music_quiz.main:app --reload --app-dir backend/src
+.venv/bin/uvicorn music_quiz.main:app --reload --no-access-log --app-dir backend/src
 ```
 
 In another terminal, start the frontend:
@@ -87,7 +87,10 @@ In another terminal, start the frontend:
 npm --prefix frontend run dev
 ```
 
-Open <http://127.0.0.1:5173>.
+Open <http://127.0.0.1:5173>. The backend loads local values from `.env` via
+`python-dotenv`; process environment variables take precedence. Keep `.env`
+local and untracked. Access logging is disabled so OAuth callback query values
+cannot enter request logs.
 
 Without Spotify credentials, use the fake playlist to exercise the game flow. The local database is stored at `.data/quiz.db` by default.
 

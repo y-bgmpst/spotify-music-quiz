@@ -6,11 +6,14 @@ import { createGame } from './helpers';
  * not in the network payload. Hiding it with CSS would still leak it.
  */
 test.describe('answer concealment', () => {
-  test('no pre-reveal API response contains answer fields', async ({ page }) => {
+  test('no pre-reveal API response contains answer fields', async ({
+    page,
+  }) => {
     const payloads: unknown[] = [];
-    page.on('response', async response => {
+    page.on('response', async (response) => {
       if (!response.url().includes('/api/v1/games')) return;
-      if (!response.headers()['content-type']?.includes('application/json')) return;
+      if (!response.headers()['content-type']?.includes('application/json'))
+        return;
       try {
         payloads.push(await response.json());
       } catch {
@@ -43,10 +46,14 @@ test.describe('answer concealment', () => {
 
     await page.getByRole('button', { name: 'Next round' }).click();
     await expect(page.getByText('Fake Album')).toHaveCount(0);
-    await expect(page.getByText('The track is hidden until you reveal it.')).toBeVisible();
+    await expect(
+      page.getByText('The track is hidden until you reveal it.'),
+    ).toBeVisible();
   });
 
-  test('the concealed stage exposes no hidden answer text to assistive tech', async ({ page }) => {
+  test('the concealed stage exposes no hidden answer text to assistive tech', async ({
+    page,
+  }) => {
     await createGame(page);
     await page.getByRole('button', { name: 'Start round' }).click();
 

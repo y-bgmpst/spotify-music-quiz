@@ -44,3 +44,8 @@ def test_missing_client_id_reports_not_set() -> None:
 def test_quoted_redirect_uri_is_unquoted() -> None:
     settings = load_settings({"SPOTIFY_REDIRECT_URI": '"http://127.0.0.1:8000/cb"'})
     assert settings.redirect_uri == "http://127.0.0.1:8000/cb"
+
+
+def test_fake_spotify_mode_is_explicit() -> None:
+    assert load_settings({"FAKE_SPOTIFY": "true"}).fake_spotify is True
+    assert load_settings({"FAKE_SPOTIFY": "false"}).fake_spotify is False

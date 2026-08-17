@@ -12,7 +12,8 @@ describe('api client', () => {
     vi.useRealTimers();
   });
 
-  const fetchMock = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  const fetchMock = () =>
+    globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
 
   it('returns parsed JSON on success', async () => {
     const game = makeGame();
@@ -28,13 +29,22 @@ describe('api client', () => {
 
     const [, init] = fetchMock().mock.calls[0] as [string, RequestInit];
     expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
     expect(init.headers).toEqual({ 'content-type': 'application/json' });
     expect(init.body).toBe(JSON.stringify({ rounds: 3 }));
   });
 
   it('surfaces the backend error message from the error envelope', async () => {
     fetchMock().mockResolvedValue(
-      jsonResponse({ error: { code: 'game_not_found', message: 'That game does not exist.' } }, 404),
+      jsonResponse(
+        {
+          error: {
+            code: 'game_not_found',
+            message: 'That game does not exist.',
+          },
+        },
+        404,
+      ),
     );
 
     const error = await api.get('missing').catch((e: unknown) => e);
@@ -47,11 +57,15 @@ describe('api client', () => {
   });
 
   it('falls back to a safe message when the error body is not JSON', async () => {
-    fetchMock().mockResolvedValue(new Response('<html>500</html>', { status: 500 }));
+    fetchMock().mockResolvedValue(
+      new Response('<html>500</html>', { status: 500 }),
+    );
 
     const error = (await api.get('x').catch((e: unknown) => e)) as ApiError;
 
-    expect(error.message).toBe('The quiz server had a problem. Please try again.');
+    expect(error.message).toBe(
+      'The quiz server had a problem. Please try again.',
+    );
     expect(error.message).not.toContain('<html>');
   });
 
@@ -61,18 +75,24 @@ describe('api client', () => {
     const error = (await api.get('x').catch((e: unknown) => e)) as ApiError;
 
     expect(error.kind).toBe('network');
-    expect(error.message).toBe('Cannot reach the quiz server. Is the backend running?');
+    expect(error.message).toBe(
+      'Cannot reach the quiz server. Is the backend running?',
+    );
   });
 
   it('aborts a request that exceeds the timeout', async () => {
     fetchMock().mockImplementation(
       (_url: string, init: RequestInit) =>
         new Promise((_resolve, reject) => {
-          init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          );
         }),
     );
 
-    const pending = request('/slow', { timeoutMs: 20 }).catch((e: unknown) => e);
+    const pending = request('/slow', { timeoutMs: 20 }).catch(
+      (e: unknown) => e,
+    );
     const error = (await pending) as ApiError;
 
     expect(error.kind).toBe('timeout');
@@ -91,18 +111,47 @@ describe('api client', () => {
     expect(toDisplayMessage(new Error('stack trace leak'))).toBe(
       'Something went wrong. Please try again.',
     );
-    expect(toDisplayMessage(new ApiError('http', 'Safe message'))).toBe('Safe message');
+    expect(toDisplayMessage(new ApiError('http', 'Safe message'))).toBe(
+      'Safe message',
+    );
   });
 
   it('builds score endpoints against the game id', async () => {
     // A Response body can only be read once, so build a fresh one per call.
     fetchMock().mockImplementation(async () => jsonResponse(makeGame()));
 
-    await api.awardScore('game-1', { participant_id: 'p-a', points: 1, reason: 'title' });
+    await api.awardScore('game-1', {
+      participant_id: 'p-a',
+      points: 1,
+      reason: 'title',
+    });
     await api.reverseScore('game-1', 'event-9');
 
-    const urls = fetchMock().mock.calls.map(call => String(call[0]));
+    const urls = fetchMock().mock.calls.map((call) => String(call[0]));
     expect(urls[0]).toContain('/games/game-1/scores');
     expect(urls[1]).toContain('/games/game-1/scores/event-9/reverse');
+  });
+
+  it('loads playlist analysis through the credentialed backend client', async () => {
+    fetchMock().mockResolvedValue(
+      jsonResponse({
+        total_items: 12,
+        eligible_unique_tracks: 10,
+        duplicates_removed: 1,
+        unavailable_or_unsupported: 1,
+        too_short_for_excerpt: 0,
+      }),
+    );
+
+    await expect(api.playlistAnalysis('playlist/1', 10)).resolves.toMatchObject(
+      {
+        eligible_unique_tracks: 10,
+      },
+    );
+    const [url, init] = fetchMock().mock.calls[0] as [string, RequestInit];
+    expect(url).toContain(
+      '/playlists/playlist%2F1/analysis?excerpt_seconds=10&mode=intro',
+    );
+    expect(init.credentials).toBe('include');
   });
 });

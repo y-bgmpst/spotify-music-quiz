@@ -71,6 +71,7 @@ package:
 	cp dist/spotify-quiz-backend.exe build/spotify-quiz-portable/ || echo "Backend not found - run 'make build-backend' first"
 	cp -r frontend/dist build/spotify-quiz-portable/frontend || echo "Frontend not found - run 'make build-frontend' first"
 	cp windows-portable/launcher.bat build/spotify-quiz-portable/
+	cp windows-portable/restart-backend.bat build/spotify-quiz-portable/
 	cp windows-portable/ANLEITUNG.txt build/spotify-quiz-portable/
 	cp .env.example build/spotify-quiz-portable/.env
 	@echo "✓ Package: build/spotify-quiz-portable/"
@@ -85,4 +86,3 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	@echo "✓ Build artifacts cleaned"
-

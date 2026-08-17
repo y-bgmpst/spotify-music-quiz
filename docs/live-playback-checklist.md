@@ -22,7 +22,7 @@ This checklist covers manual verification of Spotify Web Playback SDK integratio
   - `SPOTIFY_CLIENT_ID` - valid OAuth app client ID
   - `SPOTIFY_REDIRECT_URI` - matches registered callback in Spotify Dashboard
   - `FRONTEND_ORIGIN` - matches frontend dev server URL
-- [ ] Backend server running: `.venv/bin/uvicorn music_quiz.main:app --reload --app-dir backend/src`
+- [ ] Backend server running: `.venv/bin/uvicorn music_quiz.main:app --reload --no-access-log --app-dir backend/src`
 - [ ] Frontend dev server running: `npm --prefix frontend run dev`
 - [ ] Backend health check responds: `curl http://127.0.0.1:8000/api/v1/health`
 
@@ -46,7 +46,7 @@ This checklist covers manual verification of Spotify Web Playback SDK integratio
 - [ ] Browser redirects to Spotify authorization page
 - [ ] Spotify shows app name and requested scopes
 - [ ] Click "Agree" to authorize
-- [ ] Browser redirects back to frontend with `?authenticated=1` parameter
+- [ ] Browser redirects back to frontend with `?auth_callback=success`; the UI then verifies `/api/v1/auth/status`
 - [ ] Frontend shows authenticated state (user indicator or playlist selection)
 - [ ] No errors in browser console during OAuth flow
 - [ ] Network tab shows successful token exchange
@@ -104,6 +104,11 @@ Test error scenarios by:
 - [ ] Cannot proceed with 0 eligible tracks
 
 ## Game Configuration & Playback
+
+Playlist selection and the backend eligibility summary are now available before
+this section. The host must choose and analyse a playlist with at least one
+eligible unique track before entering game setup. This milestone does not yet
+verify Web Playback SDK device readiness or audio.
 
 ### 9. Game Creation
 

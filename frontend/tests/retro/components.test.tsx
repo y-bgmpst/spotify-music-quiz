@@ -55,7 +55,9 @@ describe('MenuBar', () => {
     expect(screen.getByRole('menu', { name: 'File' })).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument(),
+    );
     expect(trigger).toHaveFocus();
   });
 
@@ -74,14 +76,23 @@ describe('MenuBar', () => {
     const user = userEvent.setup();
     render(<MenuBar menus={buildMenus()} />);
     await user.click(screen.getByRole('button', { name: 'Audio' }));
-    expect(screen.getByRole('menuitemcheckbox', { name: /Intro sound/ })).toBeChecked();
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: /Intro sound/ }),
+    ).toBeChecked();
   });
 
   it('does not fire disabled entries', async () => {
     const onSelect = vi.fn();
     const user = userEvent.setup();
     render(
-      <MenuBar menus={[{ label: 'File', items: [{ label: 'Save', onSelect, disabled: true }] }]} />,
+      <MenuBar
+        menus={[
+          {
+            label: 'File',
+            items: [{ label: 'Save', onSelect, disabled: true }],
+          },
+        ]}
+      />,
     );
     await user.click(screen.getByRole('button', { name: 'File' }));
     await user.click(screen.getByRole('menuitem', { name: /Save/ }));
@@ -123,7 +134,9 @@ describe('RetroDialog', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByRole('heading', { name: 'Audio settings' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Audio settings' }),
+    ).toBeInTheDocument();
   });
 
   it('gives focus to the requested element', async () => {
@@ -140,7 +153,9 @@ describe('RetroDialog', () => {
     await user.click(opener);
     await user.keyboard('{Escape}');
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
     expect(opener).toHaveFocus();
   });
 
@@ -148,8 +163,12 @@ describe('RetroDialog', () => {
     const user = userEvent.setup();
     render(<DialogHarness />);
     await user.click(screen.getByRole('button', { name: 'Open settings' }));
-    await user.click(screen.getByRole('button', { name: 'Close Audio settings' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await user.click(
+      screen.getByRole('button', { name: 'Close Audio settings' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
   });
 
   it('renders a default OK action when no footer is given', async () => {

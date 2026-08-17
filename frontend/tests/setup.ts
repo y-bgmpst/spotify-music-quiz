@@ -16,7 +16,11 @@ class StubAudioContext {
   }
   createGain() {
     return {
-      gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {} },
+      gain: {
+        setValueAtTime() {},
+        exponentialRampToValueAtTime() {},
+        linearRampToValueAtTime() {},
+      },
       connect() {},
     };
   }

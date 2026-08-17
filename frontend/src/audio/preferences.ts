@@ -28,7 +28,8 @@ const STORAGE_KEY = 'smq.audio-preferences.v1';
 
 /** True when the user asked the OS for reduced motion / reduced sensory load. */
 export function prefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function')
+    return false;
   try {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   } catch {
@@ -55,7 +56,10 @@ export function loadAudioPreferences(): AudioPreferences {
     if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<AudioPreferences>;
     return {
-      introSound: typeof parsed.introSound === 'boolean' ? parsed.introSound : defaults.introSound,
+      introSound:
+        typeof parsed.introSound === 'boolean'
+          ? parsed.introSound
+          : defaults.introSound,
       volume: clampVolume(parsed.volume),
       skipIntro: parsed.skipIntro === true,
       uiSounds: parsed.uiSounds !== false,
@@ -76,5 +80,7 @@ export function saveAudioPreferences(preferences: AudioPreferences): void {
 
 /** Should the handshake actually play for this configuration? */
 export function shouldPlayIntro(preferences: AudioPreferences): boolean {
-  return preferences.introSound && !preferences.skipIntro && preferences.volume > 0;
+  return (
+    preferences.introSound && !preferences.skipIntro && preferences.volume > 0
+  );
 }

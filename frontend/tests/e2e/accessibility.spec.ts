@@ -16,7 +16,9 @@ async function scan(page: Page) {
 test.describe('accessibility', () => {
   test('the setup screen has no axe violations', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Set up the quiz' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Set up the quiz' }),
+    ).toBeVisible();
 
     const results = await scan(page);
 
@@ -33,18 +35,24 @@ test.describe('accessibility', () => {
     expect(results.violations).toEqual([]);
   });
 
-  test('the revealed screen with scoring has no axe violations', async ({ page }) => {
+  test('the revealed screen with scoring has no axe violations', async ({
+    page,
+  }) => {
     await createGame(page);
     await page.getByRole('button', { name: 'Start round' }).click();
     await page.getByRole('button', { name: 'Reveal answer' }).click();
-    await page.getByRole('button', { name: /Award one point to Team A for the title/ }).click();
+    await page
+      .getByRole('button', { name: /Award one point to Team A for the title/ })
+      .click();
 
     const results = await scan(page);
 
     expect(results.violations).toEqual([]);
   });
 
-  test('the whole game can be played with the keyboard alone', async ({ page }) => {
+  test('the whole game can be played with the keyboard alone', async ({
+    page,
+  }) => {
     await page.goto('/');
 
     // Reach and fill the form using only keyboard interaction.
@@ -57,7 +65,9 @@ test.describe('accessibility', () => {
     await expect(startQuiz).toBeFocused();
     await page.keyboard.press('Enter');
 
-    await expect(page.getByRole('heading', { name: /Round 1 of/ })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Round 1 of/ }),
+    ).toBeVisible();
 
     for (const name of ['Start round', 'Reveal answer', 'Next round']) {
       const button = page.getByRole('button', { name });
@@ -66,7 +76,9 @@ test.describe('accessibility', () => {
       await page.keyboard.press('Enter');
     }
 
-    await expect(page.getByRole('heading', { name: /Round 2 of/ })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: /Round 2 of/ }),
+    ).toBeVisible();
   });
 
   test('focused controls show a visible focus indicator', async ({ page }) => {
@@ -75,7 +87,7 @@ test.describe('accessibility', () => {
     await button.focus();
 
     const outlineWidth = await button.evaluate(
-      element => window.getComputedStyle(element).outlineWidth,
+      (element) => window.getComputedStyle(element).outlineWidth,
     );
 
     expect(parseFloat(outlineWidth)).toBeGreaterThanOrEqual(2);
@@ -103,7 +115,7 @@ test.describe('accessibility', () => {
   });
 
   test('errors are announced through a live region', async ({ page }) => {
-    await page.route('**/api/v1/games', route => route.abort('failed'));
+    await page.route('**/api/v1/games', (route) => route.abort('failed'));
     await page.goto('/');
 
     await page.getByRole('button', { name: 'Start quiz' }).click();

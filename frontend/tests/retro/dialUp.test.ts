@@ -33,20 +33,26 @@ describe('playDialUpEffect', () => {
 
   it('resolves when the environment has no Web Audio API', async () => {
     const original = window.AudioContext;
-    const originalWebkit = (window as unknown as { webkitAudioContext?: unknown })
-      .webkitAudioContext;
+    const originalWebkit = (
+      window as unknown as { webkitAudioContext?: unknown }
+    ).webkitAudioContext;
     // @ts-expect-error deliberately removing the API for this assertion
     window.AudioContext = undefined;
     // @ts-expect-error deliberately removing the API for this assertion
     window.webkitAudioContext = undefined;
     await expect(playDialUpEffect({ volume: 1 })).resolves.toBeUndefined();
     window.AudioContext = original;
-    (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext = originalWebkit;
+    (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext =
+      originalWebkit;
   });
 
   it('closes the audio context after an aborted run', async () => {
     const controller = new AbortController();
-    const promise = playDialUpEffect({ volume: 0.5, durationMs: 6000, signal: controller.signal });
+    const promise = playDialUpEffect({
+      volume: 0.5,
+      durationMs: 6000,
+      signal: controller.signal,
+    });
     await Promise.resolve();
     controller.abort();
     await promise;
@@ -98,7 +104,12 @@ describe('audio preferences', () => {
   });
 
   it('round-trips saved preferences', () => {
-    saveAudioPreferences({ introSound: false, volume: 0.2, skipIntro: true, uiSounds: false });
+    saveAudioPreferences({
+      introSound: false,
+      volume: 0.2,
+      skipIntro: true,
+      uiSounds: false,
+    });
     expect(loadAudioPreferences()).toEqual({
       introSound: false,
       volume: 0.2,
@@ -109,26 +120,51 @@ describe('audio preferences', () => {
 
   it('recovers from corrupted storage', () => {
     localStorage.setItem('smq.audio-preferences.v1', '{not json');
-    expect(loadAudioPreferences().volume).toBe(DEFAULT_AUDIO_PREFERENCES.volume);
+    expect(loadAudioPreferences().volume).toBe(
+      DEFAULT_AUDIO_PREFERENCES.volume,
+    );
   });
 
   it('clamps an out-of-range stored volume', () => {
-    localStorage.setItem('smq.audio-preferences.v1', JSON.stringify({ volume: 42 }));
+    localStorage.setItem(
+      'smq.audio-preferences.v1',
+      JSON.stringify({ volume: 42 }),
+    );
     expect(loadAudioPreferences().volume).toBe(1);
   });
 
   it('only plays the intro when enabled, not skipped and audible', () => {
-    expect(shouldPlayIntro({ introSound: true, volume: 0.5, skipIntro: false, uiSounds: true })).toBe(
-      true,
-    );
-    expect(shouldPlayIntro({ introSound: false, volume: 0.5, skipIntro: false, uiSounds: true })).toBe(
-      false,
-    );
-    expect(shouldPlayIntro({ introSound: true, volume: 0.5, skipIntro: true, uiSounds: true })).toBe(
-      false,
-    );
-    expect(shouldPlayIntro({ introSound: true, volume: 0, skipIntro: false, uiSounds: true })).toBe(
-      false,
-    );
+    expect(
+      shouldPlayIntro({
+        introSound: true,
+        volume: 0.5,
+        skipIntro: false,
+        uiSounds: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPlayIntro({
+        introSound: false,
+        volume: 0.5,
+        skipIntro: false,
+        uiSounds: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPlayIntro({
+        introSound: true,
+        volume: 0.5,
+        skipIntro: true,
+        uiSounds: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPlayIntro({
+        introSound: true,
+        volume: 0,
+        skipIntro: false,
+        uiSounds: true,
+      }),
+    ).toBe(false);
   });
 });
