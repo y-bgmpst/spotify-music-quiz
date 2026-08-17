@@ -88,6 +88,7 @@ Copy-Item "dist/spotify-quiz-backend.exe" "$outputDir/"
 Copy-Item "frontend/dist" "$outputDir/frontend" -Recurse
 Copy-Item "windows-portable/launcher.bat" "$outputDir/"
 Copy-Item "windows-portable/restart-backend.bat" "$outputDir/"
+Copy-Item "windows-portable/launcher.ps1" "$outputDir/"
 Copy-Item "windows-portable/ANLEITUNG.txt" "$outputDir/"
 Copy-Item "windows-portable/.env.example" "$outputDir/.env"
 Copy-Item "README.md" "$outputDir/" -ErrorAction SilentlyContinue
