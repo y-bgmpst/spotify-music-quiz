@@ -286,7 +286,11 @@ def callback(
     try:
         auth_service.exchange_code(code, settings.redirect_uri, verifier)
     except TokenRefreshError as exc:
-        logger.warning("oauth_token_exchange_failed cause=%s", type(exc).__name__)
+        logger.warning(
+            "oauth_token_exchange_failed cause=%s reason=%s",
+            type(exc).__name__,
+            exc.reason,
+        )
         return _auth_redirect("auth_error=exchange_failed")
     except Exception as exc:  # noqa: BLE001
         logger.exception("oauth_callback_unexpected type=%s", type(exc).__name__)

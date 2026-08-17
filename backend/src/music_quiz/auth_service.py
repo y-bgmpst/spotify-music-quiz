@@ -13,7 +13,9 @@ TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token"
 class TokenRefreshError(Exception):
     """Raised when a token exchange or refresh fails."""
 
-    pass
+    def __init__(self, message: str, *, reason: str = "unknown") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class SpotifyAuthService:
@@ -39,24 +41,46 @@ class SpotifyAuthService:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         except httpx.HTTPError as exc:
-            raise TokenRefreshError(f"Could not reach Spotify: {type(exc).__name__}") from exc
+            raise TokenRefreshError("Could not reach Spotify.", reason="spotify_network") from exc
 
         if response.status_code != 200:
-            raise TokenRefreshError(f"Token request failed: {response.status_code} {response.text}")
+            reason = f"spotify_http_{response.status_code}"
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict):
+                error = payload.get("error")
+                if (
+                    isinstance(error, str)
+                    and 1 <= len(error) <= 64
+                    and all(character.isalnum() or character in {"_", "-"} for character in error)
+                ):
+                    reason += f"_{error}"
+            raise TokenRefreshError(
+                f"Spotify token request failed ({response.status_code}).", reason=reason
+            )
 
         try:
             payload = response.json()
         except ValueError as exc:
-            raise TokenRefreshError("Spotify returned a non-JSON token response.") from exc
+            raise TokenRefreshError(
+                "Spotify returned a non-JSON token response.", reason="spotify_invalid_response"
+            ) from exc
         if not isinstance(payload, dict):
-            raise TokenRefreshError("Spotify returned an unexpected token response.")
+            raise TokenRefreshError(
+                "Spotify returned an unexpected token response.",
+                reason="spotify_invalid_response",
+            )
         return payload
 
     @staticmethod
     def _require(payload: dict[str, Any], key: str) -> Any:
         value = payload.get(key)
         if value is None:
-            raise TokenRefreshError(f"Spotify token response is missing '{key}'.")
+            raise TokenRefreshError(
+                f"Spotify token response is missing '{key}'.", reason=f"spotify_missing_{key}"
+            )
         return value
 
     def exchange_code(self, code: str, redirect_uri: str, verifier: str) -> SpotifyToken:
@@ -73,7 +97,9 @@ class SpotifyAuthService:
         try:
             expires_in = int(self._require(data, "expires_in"))
         except (TypeError, ValueError) as exc:
-            raise TokenRefreshError("Spotify sent an unreadable token lifetime.") from exc
+            raise TokenRefreshError(
+                "Spotify sent an unreadable token lifetime.", reason="spotify_invalid_expires_in"
+            ) from exc
 
         token = SpotifyToken(
             user_id="default",  # Single-user app
@@ -102,7 +128,9 @@ class SpotifyAuthService:
         try:
             expires_in = int(self._require(data, "expires_in"))
         except (TypeError, ValueError) as exc:
-            raise TokenRefreshError("Spotify sent an unreadable token lifetime.") from exc
+            raise TokenRefreshError(
+                "Spotify sent an unreadable token lifetime.", reason="spotify_invalid_expires_in"
+            ) from exc
 
         new_token = SpotifyToken(
             user_id=token.user_id,
