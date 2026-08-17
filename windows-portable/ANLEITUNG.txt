@@ -31,6 +31,7 @@ SYSTEM: Windows 10/11 (64-bit)
 
 4. Starten:
    - Doppelklick auf: launcher.bat
+   - Für einen Neustart: Doppelklick auf restart-backend.bat
    - Browser öffnet sich automatisch
    - Die App bindet nur an 127.0.0.1 und benötigt normalerweise keine eingehende Firewall-Freigabe.
 

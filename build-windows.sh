@@ -59,6 +59,7 @@ mkdir -p "$OUTPUT_DIR/config"
 cp dist/spotify-quiz-backend.exe "$OUTPUT_DIR/"
 cp -r frontend/dist "$OUTPUT_DIR/frontend"
 cp windows-portable/launcher.bat "$OUTPUT_DIR/"
+cp windows-portable/restart-backend.bat "$OUTPUT_DIR/"
 cp windows-portable/ANLEITUNG.txt "$OUTPUT_DIR/"
 cp .env.example "$OUTPUT_DIR/.env"
 
