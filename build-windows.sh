@@ -53,16 +53,24 @@ echo ""
 
 echo "Creating portable package..."
 OUTPUT_DIR="build/spotify-quiz-portable"
+rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR/data"
 mkdir -p "$OUTPUT_DIR/config"
 
+# The only custom executable in the portable package is the bundled backend.
 cp dist/spotify-quiz-backend.exe "$OUTPUT_DIR/"
 cp -r frontend/dist "$OUTPUT_DIR/frontend"
 cp windows-portable/launcher.bat "$OUTPUT_DIR/"
 cp windows-portable/restart-backend.bat "$OUTPUT_DIR/"
 cp windows-portable/launcher.ps1 "$OUTPUT_DIR/"
 cp windows-portable/ANLEITUNG.txt "$OUTPUT_DIR/"
-cp .env.example "$OUTPUT_DIR/.env"
+cp windows-portable/.env.example "$OUTPUT_DIR/.env"
+
+mapfile -t packaged_executables < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -iname "*.exe" -printf '%f\n')
+if [ "${#packaged_executables[@]}" -ne 1 ] || [ "${packaged_executables[0]}" != "spotify-quiz-backend.exe" ]; then
+    echo "ERROR: Unexpected executable set in portable package: ${packaged_executables[*]}"
+    exit 1
+fi
 
 echo "✓ Package created: $OUTPUT_DIR/"
 echo ""
