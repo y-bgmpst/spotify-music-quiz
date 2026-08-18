@@ -93,9 +93,15 @@ Copy-Item "windows-portable/ANLEITUNG.txt" "$outputDir/"
 Copy-Item "windows-portable/.env.example" "$outputDir/.env"
 Copy-Item "README.md" "$outputDir/" -ErrorAction SilentlyContinue
 
-$packagedExecutables = @(Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File)
-if ($packagedExecutables.Count -ne 1 -or $packagedExecutables[0].Name -ne "spotify-quiz-backend.exe") {
-    $names = ($packagedExecutables | ForEach-Object Name) -join ", "
+# Enforce the portable contract across the complete package tree, not only the root.
+$outputRoot = (Resolve-Path -LiteralPath $outputDir).Path.TrimEnd('\', '/')
+$packagedExecutablePaths = @(
+    Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse | ForEach-Object {
+        $_.FullName.Substring($outputRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+    }
+)
+if ($packagedExecutablePaths.Count -ne 1 -or $packagedExecutablePaths[0] -ne "spotify-quiz-backend.exe") {
+    $names = $packagedExecutablePaths -join ", "
     throw "Unexpected executable set in portable package: $names"
 }
 
