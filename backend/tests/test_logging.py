@@ -60,14 +60,14 @@ def test_windows_portable_builds_package_only_the_backend_executable() -> None:
 
     recursive_exe_scan = 'Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse'
     assert recursive_exe_scan in powershell_build
-    assert 'Substring($outputRoot.Length)' in powershell_build
-    assert '$packagedExecutablePaths.Count -ne 1' in powershell_build
+    assert "Substring($outputRoot.Length)" in powershell_build
+    assert "$packagedExecutablePaths.Count -ne 1" in powershell_build
     assert '$packagedExecutablePaths[0] -ne "spotify-quiz-backend.exe"' in powershell_build
 
     assert 'find "$OUTPUT_DIR" -type f -iname "*.exe" -printf \'%P\\n\'' in shell_build
-    assert '${#packaged_executable_paths[@]}' in shell_build
-    assert '${packaged_executable_paths[0]}' in shell_build
-    assert '-maxdepth 1' not in shell_build
+    assert "${#packaged_executable_paths[@]}" in shell_build
+    assert "${packaged_executable_paths[0]}" in shell_build
+    assert "-maxdepth 1" not in shell_build
 
 
 def test_shell_windows_portable_build_cleans_stale_output() -> None:
