@@ -45,26 +45,23 @@ def test_windows_portable_builds_share_the_portable_env_template() -> None:
     powershell_build = (ROOT / "build-windows.ps1").read_text()
     shell_build = (ROOT / "build-windows.sh").read_text()
 
-    portable_env = 'windows-portable/.env.example'
+    portable_env = "windows-portable/.env.example"
     assert portable_env in powershell_build
     assert portable_env in shell_build
     assert 'cp .env.example "$OUTPUT_DIR/.env"' not in shell_build
 
 
-def test_windows_portable_contract_has_one_custom_executable() -> None:
-    launcher = (ROOT / "windows-portable/launcher.ps1").read_text()
+def test_windows_portable_builds_package_only_the_backend_executable() -> None:
     powershell_build = (ROOT / "build-windows.ps1").read_text()
     shell_build = (ROOT / "build-windows.sh").read_text()
 
-    backend_exe = "spotify-quiz-backend.exe"
-    assert backend_exe in launcher
-    assert backend_exe in powershell_build
-    assert backend_exe in shell_build
+    assert 'Copy-Item "dist/spotify-quiz-backend.exe" "$outputDir/"' in powershell_build
+    assert 'cp dist/spotify-quiz-backend.exe "$OUTPUT_DIR/"' in shell_build
+    assert 'Get-ChildItem -LiteralPath $outputDir -Filter "*.exe"' in powershell_build
+    assert 'find "$OUTPUT_DIR" -maxdepth 1 -type f -iname "*.exe"' in shell_build
 
-    for content in (launcher, powershell_build, shell_build):
-        exe_names = {
-            token.strip('"\'()[]{}:,;')
-            for token in content.replace("\\", "/").split()
-            if token.lower().endswith(".exe")
-        }
-        assert exe_names <= {backend_exe}
+
+def test_shell_windows_portable_build_cleans_stale_output() -> None:
+    shell_build = (ROOT / "build-windows.sh").read_text()
+
+    assert 'rm -rf "$OUTPUT_DIR"' in shell_build
