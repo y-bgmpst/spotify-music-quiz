@@ -74,7 +74,7 @@ Write-Host ""
 Write-Host "Creating portable package..." -ForegroundColor Yellow
 $outputDir = "build/spotify-quiz-portable"
 
-# Clean and create output directory
+# Clean and create output directory so stale binaries can never leak into a new ZIP.
 if (Test-Path $outputDir) {
     Remove-Item $outputDir -Recurse -Force
 }
@@ -82,7 +82,7 @@ New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$outputDir/data" -Force | Out-Null
 New-Item -ItemType Directory -Path "$outputDir/config" -Force | Out-Null
 
-# Copy files
+# Copy files. The only custom executable in the portable package is the bundled backend.
 Write-Host "  → Copying files..." -ForegroundColor Gray
 Copy-Item "dist/spotify-quiz-backend.exe" "$outputDir/"
 Copy-Item "frontend/dist" "$outputDir/frontend" -Recurse
@@ -92,6 +92,18 @@ Copy-Item "windows-portable/launcher.ps1" "$outputDir/"
 Copy-Item "windows-portable/ANLEITUNG.txt" "$outputDir/"
 Copy-Item "windows-portable/.env.example" "$outputDir/.env"
 Copy-Item "README.md" "$outputDir/" -ErrorAction SilentlyContinue
+
+# Enforce the portable contract across the complete package tree, not only the root.
+$outputRoot = (Resolve-Path -LiteralPath $outputDir).Path.TrimEnd('\', '/')
+$packagedExecutablePaths = @(
+    Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse | ForEach-Object {
+        $_.FullName.Substring($outputRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+    }
+)
+if ($packagedExecutablePaths.Count -ne 1 -or $packagedExecutablePaths[0] -ne "spotify-quiz-backend.exe") {
+    $names = $packagedExecutablePaths -join ", "
+    throw "Unexpected executable set in portable package: $names"
+}
 
 # Create version file
 $version = Get-Date -Format "yyyy-MM-dd"

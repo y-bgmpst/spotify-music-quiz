@@ -4,7 +4,7 @@
 ===============================================
 
 VERSION: 1.0
-DATUM: 2026-08-04
+DATUM: 2026-08-18
 SYSTEM: Windows 10/11 (64-bit)
 
 ===============================================
@@ -42,26 +42,32 @@ SYSTEM: Windows 10/11 (64-bit)
 
 ✓ KEINE Installation nötig
 ✓ KEINE Admin-Rechte erforderlich
+✓ KEIN Python, Node.js oder Git auf dem Ziel-PC erforderlich
 ✓ Läuft aus Benutzerverzeichnis
 ✓ Datenbank in eigenem Ordner (data/)
-✓ Kein Internet für Quiz nötig (nur für Login)
+✓ Kein Installer und keine zusätzliche Launcher-EXE
+
+Die Portable-Ausgabe enthält genau eine projekt-eigene EXE:
+- spotify-quiz-backend.exe
+
+Start und Neustart erfolgen ausschließlich über BAT/PowerShell:
+- launcher.bat
+- launcher.ps1
+- restart-backend.bat
 
 ⚠ Falls die Organisationsrichtlinie lokale Browser-Server blockiert:
    → IT-Freigabe für eine lokale Anwendung auf 127.0.0.1:8000 erforderlich.
 
 ⚠ Windows Defender SmartScreen:
    → "Weitere Informationen" → "Trotzdem ausführen"
-   → Datei ist sicher, nur nicht signiert
+   → Die Backend-EXE ist nicht codesigniert; die lokale Richtlinie entscheidet über die Ausführung.
 
 ===============================================
  SPOTIFY / LIVE-MODUS
 ===============================================
 
-Die portable Demo nutzt den lokalen Fake-Katalog.
-Live-Spotify-Wiedergabe ist in dieser Version noch nicht verifiziert.
-
-Ohne Premium:
-→ Quiz läuft im DEMO-MODUS (Fake-Katalog)
+Live-Spotify-Wiedergabe erfordert eine passende Spotify-Konfiguration und einen geeigneten Account.
+Der Fake-Spotify-Modus steht für Entwicklung und Tests zur Verfügung.
 
 ===============================================
  VERWENDUNG
@@ -69,24 +75,21 @@ Ohne Premium:
 
 1. Doppelklick auf launcher.bat
 2. Browser öffnet sich automatisch
-3. Für die lokale Demo ist kein Login erforderlich.
-4. Quiz konfigurieren:
-   - Zeitlimit: 5/10 Min oder unbegrenzt
-   - Teams: 2 Standard-Teams
-5. "START QUIZ" klicken
-6. Musik raten!
+3. Quiz konfigurieren und starten
+4. Musik raten, Antwort aufdecken und Punkte vergeben
 
 BEENDEN:
-→ Im Launcher-Fenster: Beliebige Taste drücken
-→ Oder einfach Fenster schließen
+→ Im Launcher-Fenster Enter drücken
+→ Das von diesem Launcher gestartete Backend wird anschließend beendet
 
 ===============================================
  PROBLEMBEHEBUNG
 ===============================================
 
 Backend startet nicht:
-→ Prüfe ob Port 8000 bereits belegt ist
-→ Schließe andere Programme
+→ Fehlermeldung im Launcher-Fenster lesen
+→ Prüfen, ob Port 8000 bereits belegt ist
+→ Prüfen, ob spotify-quiz-backend.exe vorhanden und durch die lokale Sicherheitsrichtlinie ausführbar ist
 → Neustarten
 
 Browser öffnet sich nicht:
@@ -98,7 +101,7 @@ Browser öffnet sich nicht:
 
 Token abgelaufen:
 → Wird automatisch erneuert, sofern Live-OAuth eingerichtet ist
-→ Bei Problemen: data/quiz.db löschen → neu einloggen
+→ Bei Problemen neu authentifizieren
 
 Kein Ton:
 → Prüfe Windows-Lautstärke
@@ -109,25 +112,33 @@ Kein Ton:
 ===============================================
 
 Enthaltene Komponenten:
-- Backend: Python FastAPI (kompiliert)
-- Frontend: React 90s-Retro-Design
+- Backend: Python/FastAPI als einzelne PyInstaller-Binary spotify-quiz-backend.exe
+- Launcher: BAT + PowerShell, keine zusätzliche Launcher-EXE
+- Frontend: gebautes React/Vite-Bundle
 - Datenbank: SQLite (data/quiz.db)
-- Server: Uvicorn (embedded)
+- Server: Uvicorn im Backend-Bundle
 
 Systemanforderungen:
 - Windows 10/11 (64-bit)
+- PowerShell aus Windows
 - 4 GB RAM (empfohlen)
-- 100 MB freier Speicher
-- Internetzugang für Spotify-Login
+- ausreichend freier Speicher für ZIP, entpackte Anwendung und lokale Daten
+- Internetzugang für Spotify-Login und Spotify-Wiedergabe
+
+Nicht erforderlich:
+- Python-Installation
+- Node.js-Installation
+- Git-Installation
+- Administratorrechte
 
 Ports:
-- Backend: 127.0.0.1:8000 (localhost only)
+- Backend: 127.0.0.1:8000
 - Nur lokale Verbindung auf 127.0.0.1; Spotify-Verbindungen nur bei aktivierter Live-Konfiguration
 
 Daten:
-- Quizdaten und lokale Tokens liegen im data/ Ordner
+- Quizdaten und lokale Authentifizierungsdaten liegen im data/ Ordner
 - Die App sendet nur für konfigurierte Spotify-Funktionen Daten an Spotify
-- Die SQLite-Datei wird von der App nicht verschlüsselt; schützt den Benutzerordner entsprechend.
+- Die SQLite-Datei wird von der App nicht verschlüsselt; der Benutzerordner muss entsprechend geschützt werden.
 
 ===============================================
  DATENSCHUTZ
@@ -138,36 +149,20 @@ Daten:
 ✓ Kein Analytics
 ✓ Open Source
 
-Gespeicherte Daten:
-- Spotify OAuth Token (lokal gespeichert)
-- Quiz-Historie (lokal)
-- Team-Namen und Scores
-
-Spotify erhält:
-- Deine Playlists (lesend)
-- Playback-Befehle
-- Standard OAuth-Infos
-
 ===============================================
  SUPPORT & UPDATES
 ===============================================
 
 GitHub: https://github.com/y-bgmpst/spotify-music-quiz
-Dokumentation: CLAUDE.md im Projekt
 Lizenz: MIT
 
-Entwickelt mit ❤️ in Frankfurt am Main 🏙️
-
 ===============================================
- VERSION 1.0 - 90s RETRO EDITION
+ PORTABLE BUILD CONTRACT
 ===============================================
 
-Features:
-✨ Windows 95 Design mit Frankfurt-Skyline
-✨ Zeitlimit-Modi (5/10 Min)
-✨ 90er Sound-Effekte
-✨ LED-Display-Timer
-✨ Punktevergabe-System
-✨ Offline-fähig (nach Login)
-
-Viel Spaß beim Musik-Raten! 🎵
+Das Release-ZIP muss:
+- genau spotify-quiz-backend.exe als projekt-eigene EXE enthalten;
+- launcher.bat, launcher.ps1 und restart-backend.bat enthalten;
+- die portable .env-Vorlage verwenden;
+- vor dem Packen aus einem sauberen Output-Verzeichnis erzeugt werden;
+- ohne vorinstalliertes Python, Node.js oder Git auf dem Zielsystem starten.

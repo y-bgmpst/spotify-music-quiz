@@ -39,3 +39,38 @@ def test_windows_launchers_delegate_to_powershell_and_keep_console_open() -> Non
     assert "pause" in launcher
     assert "launcher.ps1" in restarter
     assert "pause" in restarter
+
+
+def test_windows_portable_builds_share_the_portable_env_template() -> None:
+    powershell_build = (ROOT / "build-windows.ps1").read_text()
+    shell_build = (ROOT / "build-windows.sh").read_text()
+
+    portable_env = "windows-portable/.env.example"
+    assert portable_env in powershell_build
+    assert portable_env in shell_build
+    assert 'cp .env.example "$OUTPUT_DIR/.env"' not in shell_build
+
+
+def test_windows_portable_builds_package_only_the_backend_executable() -> None:
+    powershell_build = (ROOT / "build-windows.ps1").read_text()
+    shell_build = (ROOT / "build-windows.sh").read_text()
+
+    assert 'Copy-Item "dist/spotify-quiz-backend.exe" "$outputDir/"' in powershell_build
+    assert 'cp dist/spotify-quiz-backend.exe "$OUTPUT_DIR/"' in shell_build
+
+    recursive_exe_scan = 'Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse'
+    assert recursive_exe_scan in powershell_build
+    assert "Substring($outputRoot.Length)" in powershell_build
+    assert "$packagedExecutablePaths.Count -ne 1" in powershell_build
+    assert '$packagedExecutablePaths[0] -ne "spotify-quiz-backend.exe"' in powershell_build
+
+    assert 'find "$OUTPUT_DIR" -type f -iname "*.exe" -printf \'%P\\n\'' in shell_build
+    assert "${#packaged_executable_paths[@]}" in shell_build
+    assert "${packaged_executable_paths[0]}" in shell_build
+    assert "-maxdepth 1" not in shell_build
+
+
+def test_shell_windows_portable_build_cleans_stale_output() -> None:
+    shell_build = (ROOT / "build-windows.sh").read_text()
+
+    assert 'rm -rf "$OUTPUT_DIR"' in shell_build
