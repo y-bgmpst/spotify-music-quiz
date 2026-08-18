@@ -58,7 +58,8 @@ def test_windows_portable_builds_package_only_the_backend_executable() -> None:
     assert 'Copy-Item "dist/spotify-quiz-backend.exe" "$outputDir/"' in powershell_build
     assert 'cp dist/spotify-quiz-backend.exe "$OUTPUT_DIR/"' in shell_build
 
-    assert 'Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse' in powershell_build
+    recursive_exe_scan = 'Get-ChildItem -LiteralPath $outputDir -Filter "*.exe" -File -Recurse'
+    assert recursive_exe_scan in powershell_build
     assert 'Substring($outputRoot.Length)' in powershell_build
     assert '$packagedExecutablePaths.Count -ne 1' in powershell_build
     assert '$packagedExecutablePaths[0] -ne "spotify-quiz-backend.exe"' in powershell_build
