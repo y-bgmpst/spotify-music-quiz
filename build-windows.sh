@@ -66,9 +66,10 @@ cp windows-portable/launcher.ps1 "$OUTPUT_DIR/"
 cp windows-portable/ANLEITUNG.txt "$OUTPUT_DIR/"
 cp windows-portable/.env.example "$OUTPUT_DIR/.env"
 
-mapfile -t packaged_executables < <(find "$OUTPUT_DIR" -maxdepth 1 -type f -iname "*.exe" -printf '%f\n')
-if [ "${#packaged_executables[@]}" -ne 1 ] || [ "${packaged_executables[0]}" != "spotify-quiz-backend.exe" ]; then
-    echo "ERROR: Unexpected executable set in portable package: ${packaged_executables[*]}"
+# Enforce the portable contract across the complete package tree, not only the root.
+mapfile -t packaged_executable_paths < <(find "$OUTPUT_DIR" -type f -iname "*.exe" -printf '%P\n')
+if [ "${#packaged_executable_paths[@]}" -ne 1 ] || [ "${packaged_executable_paths[0]}" != "spotify-quiz-backend.exe" ]; then
+    echo "ERROR: Unexpected executable set in portable package: ${packaged_executable_paths[*]}"
     exit 1
 fi
 
